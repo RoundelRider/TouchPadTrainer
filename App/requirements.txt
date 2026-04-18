@@ -1,0 +1,15 @@
+# TouchPad Test Program — Python dependencies
+# Install with:  pip install -r requirements.txt
+#
+# Minimum Python version: 3.11
+# Tested on: Windows 10/11, macOS 13+, Ubuntu 22.04
+
+# ── GUI framework ────────────────────────────────────────────────────────────
+PyQt6>=6.6.0
+
+# ── Serial communication ─────────────────────────────────────────────────────
+pyserial>=3.5
+
+# ── Testing (optional — only needed to run the test suite) ───────────────────
+pytest>=8.0
+pytest-qt>=4.4          # Qt widget testing helpers
