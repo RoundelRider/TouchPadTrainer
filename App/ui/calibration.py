@@ -141,7 +141,7 @@ class CalibrationWidget(QWidget):
         if not self._check_connected():
             return
         panel = self._orient_panel_spin.value() - 1
-        self._serial.send_orient_on(panel)
+        self._serial.send_orient_on()
         self._log_line(f"Orientation ON — Panel {panel + 1}, pad #1 lit")
 
     def _orient_off(self) -> None:
@@ -155,7 +155,7 @@ class CalibrationWidget(QWidget):
             return
         panel = self._cal_panel_spin.value() - 1
         pad   = self._cal_pad_spin.value()   - 1
-        self._serial.send_calibrate(panel, pad)
+        self._serial.send_calibrate(pad)
         self._log_line(
             f"Calibration command sent — Panel {panel + 1}, Pad {pad + 1}")
 

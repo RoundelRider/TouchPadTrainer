@@ -37,6 +37,8 @@ from core.serial_manager import (
     SerialManager, ArduinoResponse,
     COLOR_WHITE, COLOR_GREEN, COLOR_RED,
 )
+# Note: COLOR_* are now plain strings ("WHITE", "GREEN", "RED") matching
+# the TrainerPanel text protocol.  The rest of this module is unchanged.
 from data.models import (
     TestConfiguration, SessionResult, TrialResult,
     TestType, PadOrder, PadConfig,
@@ -216,13 +218,13 @@ class TestRunner(QObject):
             # ---- Send command to Arduino --------------------------------
             if pad2_cfg is None:
                 self._serial.send_single_touch(
-                    pad_cfg.panel, pad_cfg.pad, color,
+                    pad_cfg.pad + 1, color,   # +1: serial API is 1-based
                     expect_touch, cfg.timeout_ms,
                 )
             else:
                 self._serial.send_dual_touch(
-                    pad_cfg.panel, pad_cfg.pad, pad2_cfg.pad,
-                    color, expect_touch, cfg.timeout_ms,
+                    pad_cfg.pad + 1, pad2_cfg.pad + 1, color,  # +1: 1-based
+                    expect_touch, cfg.timeout_ms,
                 )
 
             # ---- Collect response --------------------------------------

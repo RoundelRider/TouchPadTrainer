@@ -11,14 +11,17 @@
 #define LED_COLOR_NAME_GREEN  "GREEN"
 
 // Serial commands                                   params
-#define CMD_CHECK_ORIENTATION "CHECK_ORIENTATION" // <ON/OFF>
-#define CMD_PATTERN "START_PATTERN"               // <START/END>
-#define CMD_TOUCH_SINGLE "TOUCH_SINGLE"           // <pad number> <color> <expect touch> <timeout> 
-#define CMD_TOUCH_DOUBLE "TOUCH_DOUBLE"           // <pad number 1> <pad number 2> <color> <expect touch> <timeout> 
+#define CMD_CHECK_ORIENTATION "ORIENTATION" // <ON/OFF>
+#define CMD_PATTERN "PATTERN"                     // <START/END>
+#define CMD_TOUCH_SINGLE "SINGLE"           // <pad number> <color> <expect touch> <timeout> 
+#define CMD_TOUCH_DOUBLE "DOUBLE"           // <pad number 1> <pad number 2> <color> <expect touch> <timeout> 
+#define CMD_CANCEL "CANCEL"
 
-class Trainer {
+#define MAX_CONCURRENT_PADS 2
+
+class TrainerPanel {
   public:
-    Trainer(uint16_t pads, uint16_t leds_per_pad, Adafruit_NeoPixel *led_array);
+    TrainerPanel(uint16_t pads, uint16_t leds_per_pad, Adafruit_NeoPixel *led_array);
 
     void ProcessCommand(const char* cmd);
 
@@ -39,36 +42,25 @@ class Trainer {
 
     void FlashLeds(uint16_t count, uint32_t color);
     void SetLed(uint16_t pad, uint16_t index, uint32_t color, bool clear=true, bool show=true);
-    void SetPadLeds(uint16_t pad, uint32_t color);
+    void SetPadLeds(uint16_t pad, uint32_t color, bool clear=true, bool show=true);
+    uint32_t GetLedColorFromString(char *color_string);
+
+    void SendPadResult();
 
     // physical configuration
     uint16_t pad_count;
     uint16_t leds_per_pad;
     Adafruit_NeoPixel *led_array;
 
-    // training information
-    bool trainingActive;
-    uint32_t trainingStartMs;
-    uint32_t trainingEndMs;
-    uint32_t trainingStepMs;
-    uint16_t trainingMode;
-
     // pad information during training
-    uint16_t padCounter;
-    uint16_t padId;
-    uint16_t padTouchId;
-    uint32_t padTouchMs;
+    bool trainingActive;
+    uint16_t activePadCount;
+    uint16_t touchedPadCount;
+    uint16_t padIds[MAX_CONCURRENT_PADS];
     uint32_t padStartMs;
     uint32_t padEndMs;
-    uint32_t padNextTickMs;
-    uint16_t padLedTickIndex;
+    uint32_t padTouchMs[MAX_CONCURRENT_PADS];
+    bool padTouched[MAX_CONCURRENT_PADS];
     uint32_t padLedColor;
     bool padExpectTouch;
-
-    // training stats for current session
-    uint16_t statHits;
-    uint16_t statMisses;
-    uint16_t statNoTouch;
-    uint32_t statHitReactionMs;
-    uint32_t statMissReactionMs;
 };

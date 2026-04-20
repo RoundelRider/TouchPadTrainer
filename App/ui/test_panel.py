@@ -225,7 +225,7 @@ class TestPanelWidget(QWidget):
         cfg = self._selected_config()
         n   = cfg.num_panels if cfg else 1
         for panel in range(n):
-            self._serial.send_orient_on(panel)
+            self._serial.send_orient_on()
         self._phase_lbl.setText(
             f"Orientation check — pad #1 lit on {n} panel(s)")
 

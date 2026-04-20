@@ -24,7 +24,7 @@
 #include <Wire.h>
 #include <Adafruit_MPR121.h>
 #include <Adafruit_NeoPixel.h>
-#include "Trainer.h"
+#include "TrainerPanel.h"
 
 #ifndef _BV
 #define _BV(bit) (1 << (bit))
@@ -53,7 +53,7 @@ uint16_t cap0LastTouch = 0;
 uint16_t cap1LastTouch = 0;
 
 // ── Trainer instantiation  ────────────────────────────────────────────────────
-Trainer trainer(NUM_PADS, LEDS_PER_PAD, &led_array);
+TrainerPanel trainer(NUM_PADS, LEDS_PER_PAD, &led_array);
 
 // ── Serial command parsing ────────────────────────────────────────────────────
 
@@ -117,7 +117,7 @@ void loop() {
   parseSerial();
 
   if (!trainer.isTrainingActive()) {
-    delay(100);
+    delay(10);
   }
   else {
     trainer.Tick();
