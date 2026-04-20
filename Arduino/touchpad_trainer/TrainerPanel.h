@@ -16,6 +16,7 @@
 #define CMD_TOUCH_SINGLE "SINGLE"           // <pad number> <color> <expect touch> <timeout> 
 #define CMD_TOUCH_DOUBLE "DOUBLE"           // <pad number 1> <pad number 2> <color> <expect touch> <timeout> 
 #define CMD_CANCEL "CANCEL"
+#define CMD_VERSION "VERSION"
 
 #define MAX_CONCURRENT_PADS 2
 

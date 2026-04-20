@@ -353,6 +353,7 @@ class SerialManager(QObject):
         timeout_ms   : give-up time in milliseconds
         """
         expect = "TRUE" if expect_touch else "FALSE"
+        logger.debug(f"Sending {CMD_SINGLE} {pad} {color} {expect} {timeout_ms}")
         self._enqueue(f"{CMD_SINGLE} {pad} {color} {expect} {timeout_ms}")
 
     def send_dual_touch(
@@ -374,6 +375,7 @@ class SerialManager(QObject):
         timeout_ms   : give-up time in milliseconds
         """
         expect = "TRUE" if expect_touch else "FALSE"
+        logger.debug(f"Sending {CMD_DOUBLE} {pad1} {pad2} {color} {expect} {timeout_ms}")
         self._enqueue(f"{CMD_DOUBLE} {pad1} {pad2} {color} {expect} {timeout_ms}")
 
     def send_cancel(self) -> None:
@@ -467,6 +469,7 @@ class SerialManager(QObject):
         while time.monotonic() < deadline:
             try:
                 raw = self._port.readline()
+                logger.debug(raw)
             except serial.SerialException:
                 raise
 
@@ -521,6 +524,7 @@ class SerialManager(QObject):
 
     def _check_firmware(self, fw: str) -> None:
         """Warn if the firmware major version does not match APP_VERSION[0]."""
+        logger.debug(f"Checking firmware return value: {fw}")
         try:
             major = int(fw.split(".")[0])
             if major != self.APP_VERSION[0]:

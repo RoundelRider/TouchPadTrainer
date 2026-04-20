@@ -103,6 +103,9 @@ void TrainerPanel::ProcessCommand(const char* cmd) {
   else if(strncmp(cmd, CMD_CANCEL, strlen(CMD_CANCEL)) == 0) {
 
   }
+  else if(strncmp(cmd, CMD_VERSION, strlen(CMD_VERSION)) == 0) {
+    Serial.println("VERSION 1.0");
+  }
 }
 
 void TrainerPanel::Tick() {
