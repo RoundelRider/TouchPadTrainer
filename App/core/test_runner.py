@@ -31,7 +31,7 @@ import time
 import logging
 from typing import Optional
 
-from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot
+from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot, Qt
 
 from core.serial_manager import (
     SerialManager, ArduinoResponse,
@@ -99,8 +99,14 @@ class TestRunner(QObject):
         self._pending_response: Optional[ArduinoResponse] = None
         self._response_lock   = threading.Lock()
 
-        # Connect once for the lifetime of this runner.
-        self._serial.response_received.connect(self._on_response_received)
+        # DirectConnection ensures the slot fires in the serial worker
+        # thread as soon as the signal is emitted, without needing the
+        # runner thread's event loop to be running (it is blocked in
+        # _wait_for_armed_response at that point).
+        self._serial.response_received.connect(
+            self._on_response_received,
+            Qt.ConnectionType.DirectConnection,
+        )
 
     # ------------------------------------------------------------------
     # Public API
@@ -129,6 +135,12 @@ class TestRunner(QObject):
             config_name=cfg.name,
         )
 
+        logger.info(
+            "Config: type=%s pad_order=%s trials=%d timeout=%dms isi=%d-%dms",
+            cfg.test_type.name, cfg.pad_order.name,
+            cfg.num_trials, cfg.timeout_ms, cfg.isi_min_ms, cfg.isi_max_ms,
+        )
+
         active_pads = [p for p in cfg.pads if not p.faulty]
         if not active_pads:
             logger.warning("No active (non-faulty) pads in configuration")
@@ -136,8 +148,22 @@ class TestRunner(QObject):
             self.test_finished.emit(session)
             return
 
+        # Arm the response event before sending so we catch PATTERN COMPLETE
+        # immediately when the Arduino finishes the flash sequence.
+        self._arm_response()
         self._serial.send_test_start()
-        time.sleep(0.5)   # let the start-pattern blink finish
+        logger.info("Waiting for start pattern to complete...")
+        self._wait_for_armed_response(timeout_ms=15_000)  # up to 15 s for flashing
+
+        # Random pre-test delay — keeps the participant from anticipating
+        # the exact moment the first pad will light.
+        if cfg.pre_test_delay_max_ms > 0:
+            delay_ms = random.randint(
+                cfg.pre_test_delay_min_ms,
+                cfg.pre_test_delay_max_ms,
+            )
+            logger.info("Pre-test delay: %d ms", delay_ms)
+            self._interruptible_sleep(delay_ms / 1_000.0)
 
         # ---- Warm-up block (not scored) --------------------------------
         if cfg.warmup_trials > 0:
@@ -161,7 +187,10 @@ class TestRunner(QObject):
             return
 
         # ---- Wrap up ---------------------------------------------------
+        self._arm_response()
         self._serial.send_test_end()
+        logger.info("Waiting for end pattern to complete...")
+        self._wait_for_armed_response(timeout_ms=15_000)
         session.end_time = _now()
         logger.info(
             "Test finished — %d trials, overall mean RT %d ms",
@@ -215,27 +244,31 @@ class TestRunner(QObject):
             # ---- Emit so live grid lights up ---------------------------
             self.trial_started.emit(pad_cfg.panel, pad_cfg.pad, color, expect_touch)
 
+            # ---- Arm response event BEFORE sending, so we never miss
+            # the signal even if the Arduino replies very quickly.
+            wait_ms = cfg.timeout_ms + self._RESPONSE_MARGIN_MS
+            self._arm_response()
+
             # ---- Send command to Arduino --------------------------------
             if pad2_cfg is None:
                 self._serial.send_single_touch(
-                    pad_cfg.pad + 1, color,   # +1: serial API is 1-based
+                    pad_cfg.pad, color,
                     expect_touch, cfg.timeout_ms,
                 )
             else:
                 self._serial.send_dual_touch(
-                    pad_cfg.pad + 1, pad2_cfg.pad + 1, color,  # +1: 1-based
+                    pad_cfg.pad, pad2_cfg.pad, color,
                     expect_touch, cfg.timeout_ms,
                 )
 
             # ---- Collect response --------------------------------------
-            wait_ms = cfg.timeout_ms + self._RESPONSE_MARGIN_MS
-            response = self._wait_for_response(wait_ms)
+            response = self._wait_for_armed_response(wait_ms)
 
             if response is None or response.is_timeout:
                 rt      = cfg.timeout_ms
                 touched = False
             else:
-                rt      = response.response_time_ms
+                rt      = response.reaction_time_ms
                 touched = response.touched
 
             # ---- Record trial result -----------------------------------
@@ -255,9 +288,11 @@ class TestRunner(QObject):
             if not is_warmup:
                 self.progress_updated.emit(i + 1, total_scored)
 
-            # ---- Inter-stimulus interval --------------------------------
-            if cfg.isi_ms > 0:
-                self._interruptible_sleep(cfg.isi_ms / 1_000.0)
+            # ---- Inter-stimulus interval (random within configured range) ----
+            if cfg.isi_max_ms > 0:
+                isi_ms = random.randint(cfg.isi_min_ms, cfg.isi_max_ms)
+                logger.debug("ISI delay: %d ms", isi_ms)
+                self._interruptible_sleep(isi_ms / 1_000.0)
 
         return False   # completed normally
 
@@ -345,26 +380,34 @@ class TestRunner(QObject):
 
         Qt delivers this in whatever thread the signal was emitted from
         (the serial worker thread).  We store the response and set the event
-        so _wait_for_response() can unblock.
+        so _wait_for_armed_response() can unblock.
         """
         with self._response_lock:
             self._pending_response = response
         self._response_event.set()
 
-    def _wait_for_response(self, timeout_ms: int) -> Optional[ArduinoResponse]:
+    def _arm_response(self) -> None:
         """
-        Block the runner thread until a response arrives or *timeout_ms* elapses.
+        Prepare to receive the next response.
 
-        Returns the ArduinoResponse, or None if the wait timed out without
-        any response being delivered.
+        Must be called BEFORE the command is sent to the Arduino so that
+        the event is already clear and waiting if the reply arrives quickly.
         """
         self._response_event.clear()
         with self._response_lock:
             self._pending_response = None
 
+    def _wait_for_armed_response(self, timeout_ms: int) -> Optional[ArduinoResponse]:
+        """
+        Block until the response event fires or *timeout_ms* elapses.
+
+        Must be preceded by a call to _arm_response() before the command
+        was sent.  Returns the ArduinoResponse, or None on timeout.
+        """
         fired = self._response_event.wait(timeout=timeout_ms / 1_000.0)
         if not fired:
-            logger.warning("_wait_for_response timed out after %d ms", timeout_ms)
+            logger.warning(
+                "_wait_for_armed_response timed out after %d ms", timeout_ms)
             return None
 
         with self._response_lock:

@@ -187,10 +187,17 @@ class TestConfiguration:
     # ---- Timing & trial count -----------------------------------------------
     timeout_ms:       int = 2_000   # per-trial response window (ms)
     num_trials:       int = 10      # scored trials
-    isi_ms:           int = 1_000   # inter-stimulus interval (ms)
+    isi_min_ms:       int = 500    # inter-stimulus interval lower bound (ms)
+    isi_max_ms:       int = 1_000  # inter-stimulus interval upper bound (ms)
     warmup_trials:    int = 0       # non-scored practice trials
     rest_every_n:     int = 0       # 0 = no rest breaks
     rest_duration_ms: int = 5_000   # how long each rest break lasts
+
+    # Random pre-test delay: a uniformly random pause between the end of
+    # the start pattern and the first trial.  Both bounds are in ms.
+    # Set both to 0 to disable.  min must be <= max.
+    pre_test_delay_min_ms: int = 0
+    pre_test_delay_max_ms: int = 0
 
     # ---- Randomisation ------------------------------------------------------
     pad_order:      PadOrder = PadOrder.PSEUDO_RANDOM
@@ -284,6 +291,12 @@ class TestConfiguration:
             issues.append("Timeout must be at least 100 ms.")
         if not (0.0 <= self.green_red_ratio <= 1.0):
             issues.append("Green:red ratio must be between 0 and 1.")
+        if self.isi_min_ms > self.isi_max_ms:
+            issues.append(
+                "ISI minimum must be less than or equal to ISI maximum.")
+        if self.pre_test_delay_min_ms > self.pre_test_delay_max_ms:
+            issues.append(
+                "Pre-test delay minimum must be less than or equal to maximum.")
         if len(self.rt_bands) > MAX_RT_BANDS:
             issues.append(f"Maximum {MAX_RT_BANDS} reaction-time bands allowed.")
         if self.test_type in (TestType.DOUBLE_WHITE, TestType.DOUBLE_SELECTIVE):
@@ -307,10 +320,13 @@ class TestConfiguration:
             "test_type":       int(self.test_type),
             "timeout_ms":      self.timeout_ms,
             "num_trials":      self.num_trials,
-            "isi_ms":          self.isi_ms,
+            "isi_min_ms":      self.isi_min_ms,
+            "isi_max_ms":      self.isi_max_ms,
             "warmup_trials":   self.warmup_trials,
             "rest_every_n":    self.rest_every_n,
             "rest_duration_ms":self.rest_duration_ms,
+            "pre_test_delay_min_ms": self.pre_test_delay_min_ms,
+            "pre_test_delay_max_ms": self.pre_test_delay_max_ms,
             "pad_order":       int(self.pad_order),
             "green_red_ratio": self.green_red_ratio,
             "rt_bands":        [b.to_dict() for b in self.rt_bands],
@@ -328,10 +344,17 @@ class TestConfiguration:
             test_type       = TestType(int(d.get("test_type", 0))),
             timeout_ms      = int(d.get("timeout_ms", 2_000)),
             num_trials      = int(d.get("num_trials", 10)),
-            isi_ms          = int(d.get("isi_ms", 1_000)),
+            # Legacy configs stored a single "isi_ms"; use it as both
+            # bounds so old sessions continue to behave as before.
+            isi_min_ms      = int(d.get("isi_min_ms",
+                                  d.get("isi_ms", 500))),
+            isi_max_ms      = int(d.get("isi_max_ms",
+                                  d.get("isi_ms", 1_000))),
             warmup_trials   = int(d.get("warmup_trials", 0)),
             rest_every_n    = int(d.get("rest_every_n", 0)),
             rest_duration_ms= int(d.get("rest_duration_ms", 5_000)),
+            pre_test_delay_min_ms = int(d.get("pre_test_delay_min_ms", 0)),
+            pre_test_delay_max_ms = int(d.get("pre_test_delay_max_ms", 0)),
             pad_order       = PadOrder(int(d.get("pad_order", 1))),
             green_red_ratio = float(d.get("green_red_ratio", 0.5)),
             rt_bands        = [ReactionBand.from_dict(b)

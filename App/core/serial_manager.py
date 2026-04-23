@@ -70,10 +70,11 @@ COLOR_WHITE = "WHITE"
 COLOR_GREEN = "GREEN"
 COLOR_RED   = "RED"
 
-RESP_SINGLE_RESULT = "SINGLE_PAD_RESULT"
-RESP_DOUBLE_RESULT = "DOUBLE_PAD_RESULT"
-RESP_VERSION       = "VERSION"
-RESP_ERROR         = "ERROR"
+RESP_SINGLE_RESULT   = "SINGLE_PAD_RESULT"
+RESP_DOUBLE_RESULT   = "DOUBLE_PAD_RESULT"
+RESP_PATTERN_COMPLETE = "PATTERN COMPLETE"
+RESP_VERSION         = "VERSION"
+RESP_ERROR           = "ERROR"
 
 # ---------------------------------------------------------------------------
 # Response data class
@@ -353,7 +354,6 @@ class SerialManager(QObject):
         timeout_ms   : give-up time in milliseconds
         """
         expect = "TRUE" if expect_touch else "FALSE"
-        logger.debug(f"Sending {CMD_SINGLE} {pad} {color} {expect} {timeout_ms}")
         self._enqueue(f"{CMD_SINGLE} {pad} {color} {expect} {timeout_ms}")
 
     def send_dual_touch(
@@ -375,7 +375,6 @@ class SerialManager(QObject):
         timeout_ms   : give-up time in milliseconds
         """
         expect = "TRUE" if expect_touch else "FALSE"
-        logger.debug(f"Sending {CMD_DOUBLE} {pad1} {pad2} {color} {expect} {timeout_ms}")
         self._enqueue(f"{CMD_DOUBLE} {pad1} {pad2} {color} {expect} {timeout_ms}")
 
     def send_cancel(self) -> None:
@@ -408,7 +407,6 @@ class SerialManager(QObject):
             self.error_occurred.emit(
                 "Cannot send command: not connected to Arduino")
             return
-        logger.debug("Queuing: %s", cmd)
         self._cmd_queue.put(cmd)
 
     # ------------------------------------------------------------------
@@ -440,12 +438,11 @@ class SerialManager(QObject):
                 try:
                     self._port.write((cmd + "\r\n").encode("ascii"))
                     self._port.flush()
-                    logger.debug("TX: %s", cmd)
+                    logger.info("Serial TX >> %s", cmd)
 
                     # Only block for a result when the command expects one.
                     if _expects_result(cmd):
                         response = self._read_result_line()
-                        logger.debug("RX: %r", response)
                         self.response_received.emit(response)
 
                 except serial.SerialException as exc:
@@ -459,17 +456,21 @@ class SerialManager(QObject):
 
     def _read_result_line(self) -> ArduinoResponse:
         """
-        Read lines from the port until a SINGLE_PAD_RESULT or
-        DOUBLE_PAD_RESULT line arrives, or the timeout expires.
+        Read lines from the port until a recognised result line arrives
+        or the timeout expires.  Recognised results are:
+          SINGLE_PAD_RESULT ...
+          DOUBLE_PAD_RESULT ...
+          PATTERN COMPLETE
+          ERROR ...
 
-        Intermediate lines (Arduino debug prints) are logged and discarded.
+        All other lines are Arduino debug/info prints and are logged at
+        DEBUG level then discarded without unblocking the wait.
         """
         deadline = time.monotonic() + self._timeout_ms / 1_000.0
 
         while time.monotonic() < deadline:
             try:
                 raw = self._port.readline()
-                logger.debug(raw)
             except serial.SerialException:
                 raise
 
@@ -481,15 +482,21 @@ class SerialManager(QObject):
             if not line:
                 continue
 
-            logger.debug("Arduino: %s", line)
-
             if line.startswith(RESP_SINGLE_RESULT):
+                logger.info("Serial RX << %s", line)
                 return _parse_single_result(line)
             if line.startswith(RESP_DOUBLE_RESULT):
+                logger.info("Serial RX << %s", line)
                 return _parse_double_result(line)
+            if line == RESP_PATTERN_COMPLETE:
+                logger.info("Serial RX << %s", line)
+                return ArduinoResponse(raw=line)
             if line.startswith(RESP_ERROR):
+                logger.warning("Serial RX << %s", line)
                 return ArduinoResponse(error=line, raw=line)
-            # Otherwise it is a debug/info print -- log and keep waiting.
+            # Not a result line -- Arduino debug/info print.
+            # Log it and keep waiting for the real result.
+            logger.debug("Serial RX (arduino) << %s", line)
 
         logger.warning("Response timeout after %d ms", self._timeout_ms)
         return ArduinoResponse(
@@ -511,8 +518,10 @@ class SerialManager(QObject):
             self._port.reset_input_buffer()
             self._port.write(b"VERSION\r\n")
             self._port.flush()
+            logger.info("Serial TX >> VERSION")
             raw  = self._port.readline()
             line = raw.decode("ascii", errors="replace").strip()
+            logger.info("Serial RX << %s", line)
             # Expect "VERSION 1.0.0" or similar
             if line.upper().startswith("VERSION"):
                 parts = line.split(None, 1)
@@ -524,7 +533,6 @@ class SerialManager(QObject):
 
     def _check_firmware(self, fw: str) -> None:
         """Warn if the firmware major version does not match APP_VERSION[0]."""
-        logger.debug(f"Checking firmware return value: {fw}")
         try:
             major = int(fw.split(".")[0])
             if major != self.APP_VERSION[0]:
@@ -546,9 +554,13 @@ class SerialManager(QObject):
 # ---------------------------------------------------------------------------
 
 def _expects_result(cmd: str) -> bool:
-    """Return True when *cmd* will produce a SINGLE/DOUBLE_PAD_RESULT reply."""
+    """Return True when *cmd* will produce a response line."""
     upper = cmd.upper()
-    return upper.startswith(CMD_SINGLE) or upper.startswith(CMD_DOUBLE)
+    return (
+        upper.startswith(CMD_SINGLE)
+        or upper.startswith(CMD_DOUBLE)
+        or upper.startswith(CMD_PATTERN)
+    )
 
 
 def _parse_single_result(line: str) -> ArduinoResponse:

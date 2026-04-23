@@ -150,17 +150,23 @@ class ConfigEditorWidget(QWidget):
 
         self._timeout_spin   = QSpinBox();  self._timeout_spin.setRange(100, 30000);   self._timeout_spin.setSuffix(" ms")
         self._trials_spin    = QSpinBox();  self._trials_spin.setRange(1, 1000)
-        self._isi_spin       = QSpinBox();  self._isi_spin.setRange(0, 10000);         self._isi_spin.setSuffix(" ms")
+        self._isi_min_spin   = QSpinBox();  self._isi_min_spin.setRange(0, 30000); self._isi_min_spin.setSuffix(" ms")
+        self._isi_max_spin   = QSpinBox();  self._isi_max_spin.setRange(0, 30000); self._isi_max_spin.setSuffix(" ms")
         self._warmup_spin    = QSpinBox();  self._warmup_spin.setRange(0, 50)
         self._rest_n_spin    = QSpinBox();  self._rest_n_spin.setRange(0, 500);        self._rest_n_spin.setSpecialValueText("Disabled")
         self._rest_dur_spin  = QSpinBox();  self._rest_dur_spin.setRange(1000, 60000); self._rest_dur_spin.setSuffix(" ms")
+        self._pre_delay_min_spin = QSpinBox(); self._pre_delay_min_spin.setRange(0, 30000); self._pre_delay_min_spin.setSuffix(" ms"); self._pre_delay_min_spin.setSpecialValueText("None")
+        self._pre_delay_max_spin = QSpinBox(); self._pre_delay_max_spin.setRange(0, 30000); self._pre_delay_max_spin.setSuffix(" ms"); self._pre_delay_max_spin.setSpecialValueText("None")
 
         tmf.addRow("Timeout per trial:",        self._timeout_spin)
         tmf.addRow("Number of trials:",         self._trials_spin)
-        tmf.addRow("Inter-stimulus interval:",  self._isi_spin)
+        tmf.addRow("Inter-stimulus interval min:", self._isi_min_spin)
+        tmf.addRow("Inter-stimulus interval max:", self._isi_max_spin)
         tmf.addRow("Warm-up trials:",           self._warmup_spin)
         tmf.addRow("Rest break every N trials:", self._rest_n_spin)
         tmf.addRow("Rest break duration:",      self._rest_dur_spin)
+        tmf.addRow("Pre-test delay minimum:",   self._pre_delay_min_spin)
+        tmf.addRow("Pre-test delay maximum:",   self._pre_delay_max_spin)
         layout.addWidget(tm_grp)
 
         # ---- Randomisation ---------------------------------------------
@@ -241,9 +247,9 @@ class ConfigEditorWidget(QWidget):
         self._grid_group_widgets.clear()
         self._grid_widgets.clear()
 
-        # Extend state arrays as needed
+        # Extend state arrays as needed — new panels start fully inactive
         while len(self._pad_active) < num_panels:
-            self._pad_active.append([True] * 16)
+            self._pad_active.append([False] * 16)
             self._pad_faulty.append([False] * 16)
 
         for panel in range(num_panels):
@@ -325,8 +331,11 @@ class ConfigEditorWidget(QWidget):
         self._num_panels_spin.setValue(cfg.num_panels)
         self._num_panels_spin.blockSignals(False)
 
-        # Rebuild grids and load pad state
-        self._pad_active = [[True] * 16 for _ in range(cfg.num_panels)]
+        # Rebuild grids and load pad state.
+        # Start with all pads inactive — only pads explicitly listed in
+        # cfg.pads are active.  This ensures inactive pads are not shown
+        # as selected when the config is reloaded after saving.
+        self._pad_active = [[False] * 16 for _ in range(cfg.num_panels)]
         self._pad_faulty = [[False] * 16 for _ in range(cfg.num_panels)]
         for pc in cfg.pads:
             if pc.panel < cfg.num_panels:
@@ -338,10 +347,13 @@ class ConfigEditorWidget(QWidget):
         self._test_type_combo.setCurrentIndex(max(0, idx))
         self._timeout_spin.setValue(cfg.timeout_ms)
         self._trials_spin.setValue(cfg.num_trials)
-        self._isi_spin.setValue(cfg.isi_ms)
+        self._isi_min_spin.setValue(cfg.isi_min_ms)
+        self._isi_max_spin.setValue(cfg.isi_max_ms)
         self._warmup_spin.setValue(cfg.warmup_trials)
         self._rest_n_spin.setValue(cfg.rest_every_n)
         self._rest_dur_spin.setValue(cfg.rest_duration_ms)
+        self._pre_delay_min_spin.setValue(cfg.pre_test_delay_min_ms)
+        self._pre_delay_max_spin.setValue(cfg.pre_test_delay_max_ms)
 
         idx2 = self._pad_order_combo.findData(cfg.pad_order)
         self._pad_order_combo.setCurrentIndex(max(0, idx2))
@@ -394,10 +406,13 @@ class ConfigEditorWidget(QWidget):
             test_type        = self._test_type_combo.currentData(),
             timeout_ms       = self._timeout_spin.value(),
             num_trials       = self._trials_spin.value(),
-            isi_ms           = self._isi_spin.value(),
+            isi_min_ms       = self._isi_min_spin.value(),
+            isi_max_ms       = self._isi_max_spin.value(),
             warmup_trials    = self._warmup_spin.value(),
             rest_every_n     = self._rest_n_spin.value(),
             rest_duration_ms = self._rest_dur_spin.value(),
+            pre_test_delay_min_ms = self._pre_delay_min_spin.value(),
+            pre_test_delay_max_ms = self._pre_delay_max_spin.value(),
             pad_order        = self._pad_order_combo.currentData(),
             green_red_ratio  = self._ratio_spin.value(),
             rt_bands         = bands,

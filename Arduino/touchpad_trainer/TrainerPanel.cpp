@@ -168,10 +168,12 @@ void TrainerPanel::CheckOrientation(bool enable) {
 void TrainerPanel::LedPatternStart() {
   // Flas green leds 
   FlashLeds(3, LED_COLOR_GREEN);
+  Serial.println("PATTERN COMPLETE");
 }
 
 void TrainerPanel::LedPatternEnd() {
   FlashLeds(3, LED_COLOR_RED);
+  Serial.println("PATTERN COMPLETE");
 }
 
 void TrainerPanel::StartSingleTouch(int pad_number, uint32_t color, bool expect_touch, uint16_t timeout) {
