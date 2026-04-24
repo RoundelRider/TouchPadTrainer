@@ -255,6 +255,11 @@ class SerialManager(QObject):
         with self._port_lock:
             self._port = ser
 
+        # Query firmware version BEFORE starting the worker thread so
+        # there is no race between _query_firmware and the worker both
+        # reading from the port.
+        fw = self._query_firmware()
+
         self._running = True
         self._worker  = threading.Thread(
             target=self._worker_loop,
@@ -263,9 +268,6 @@ class SerialManager(QObject):
         )
         self._worker.start()
         self.status_changed.emit("Connected")
-
-        # Query firmware version directly (before the worker starts consuming lines).
-        fw = self._query_firmware()
         self._firmware = fw
         self._check_firmware(fw)
         self.connected.emit(port, fw)
@@ -461,6 +463,7 @@ class SerialManager(QObject):
           SINGLE_PAD_RESULT ...
           DOUBLE_PAD_RESULT ...
           PATTERN COMPLETE
+          VERSION ...
           ERROR ...
 
         All other lines are Arduino debug/info prints and are logged at
@@ -491,6 +494,9 @@ class SerialManager(QObject):
             if line == RESP_PATTERN_COMPLETE:
                 logger.info("Serial RX << %s", line)
                 return ArduinoResponse(raw=line)
+            if line.upper().startswith(RESP_VERSION):
+                logger.info("Serial RX << %s", line)
+                return ArduinoResponse(raw=line)
             if line.startswith(RESP_ERROR):
                 logger.warning("Serial RX << %s", line)
                 return ArduinoResponse(error=line, raw=line)
@@ -511,22 +517,47 @@ class SerialManager(QObject):
 
     def _query_firmware(self) -> str:
         """
-        Send VERSION directly (bypassing the queue) and read the reply.
+        Send VERSION and read the reply.
+
         Called once during connect() before the worker thread starts.
+
+        Strategy:
+          1. Give the Arduino a short window to finish printing any
+             startup messages, then flush the input buffer.
+          2. Send the VERSION command.
+          3. Read lines one at a time, skipping any debug/startup prints,
+             until we see a line that starts with "VERSION" or we run out
+             of attempts.
         """
         try:
+            # Let the Arduino finish any startup prints before we clear
+            # the buffer, so we don't accidentally flush the VERSION reply.
+            time.sleep(0.3)
             self._port.reset_input_buffer()
+
             self._port.write(b"VERSION\r\n")
             self._port.flush()
             logger.info("Serial TX >> VERSION")
-            raw  = self._port.readline()
-            line = raw.decode("ascii", errors="replace").strip()
-            logger.info("Serial RX << %s", line)
-            # Expect "VERSION 1.0.0" or similar
-            if line.upper().startswith("VERSION"):
-                parts = line.split(None, 1)
-                return parts[1] if len(parts) > 1 else "unknown"
-            return line or "unknown"
+
+            # Read lines until we find one starting with "VERSION".
+            # The Arduino may print other debug lines before it responds,
+            # so we keep reading and discard anything that isn't the reply.
+            for attempt in range(10):
+                raw  = self._port.readline()
+                if not raw:
+                    # readline() timed out with no data — stop trying.
+                    logger.warning("No response to VERSION query")
+                    break
+                line = raw.decode("ascii", errors="replace").strip()
+                logger.info("Serial RX << %s", line)
+                if line.upper().startswith("VERSION"):
+                    parts = line.split(None, 1)
+                    return parts[1] if len(parts) > 1 else "unknown"
+                # Not the VERSION reply — log as debug and keep reading.
+                logger.debug("Discarding pre-VERSION line: %s", line)
+
+            logger.warning("VERSION reply not received after 10 attempts")
+            return "unknown"
         except Exception as exc:
             logger.warning("Firmware version query failed: %s", exc)
             return "unknown"
@@ -560,6 +591,7 @@ def _expects_result(cmd: str) -> bool:
         upper.startswith(CMD_SINGLE)
         or upper.startswith(CMD_DOUBLE)
         or upper.startswith(CMD_PATTERN)
+        or upper == CMD_VERSION
     )
 
 
