@@ -20,7 +20,7 @@
 */
 #include <Adafruit_MPR121.h>
 
-#define TOUCH_THRESHOLD 16
+#define TOUCH_THRESHOLD 20
 #define RELEASE_THRESHOLD 10
 #define PADS_PER_CAP_CONTROLLER 12
 
