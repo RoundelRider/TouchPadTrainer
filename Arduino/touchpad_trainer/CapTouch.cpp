@@ -6,7 +6,7 @@ CapTouch::CapTouch(uint8_t pads_per_controller):
   pads_per_controller(pads_per_controller)
 {
 }
-
+/*
 CapTouch1188::CapTouch1188(uint8_t i2caddr, uint8_t reset_pin):
   CapTouch(8),
   cap1188(NULL),
@@ -42,13 +42,11 @@ uint16_t CapTouch1188::touched(void) {
   last_touch = cap1188->touched();
   return last_touch;
 }
-
-CapTouchMPR121::CapTouchMPR121(uint8_t address, uint8_t touchThreshold, uint8_t releaseThreshold):
+*/
+CapTouchMPR121::CapTouchMPR121(uint8_t address):
   CapTouch(12),
   mpr121(NULL),
-  i2c_addr(address),
-  touch_threshold(touchThreshold),
-  release_threshold(release_threshold)
+  i2c_addr(address)
 {
   mpr121 = new Adafruit_MPR121();
 }
@@ -64,11 +62,12 @@ bool CapTouchMPR121::begin() {
   if (mpr121) {
     if (mpr121->begin(i2c_addr)) {
       mpr121->setAutoconfig(true);
-      mpr121->setThresholds(touch_threshold, release_threshold);
+      mpr121->setThresholds(TOUCH_THRESHOLD, RELEASE_THRESHOLD);
       initialized = true;
       return true;
     }
     else {
+      Serial.print("ERROR: Capacative touch device at address "); Serial.print(i2c_addr); Serial.println(" not found");
       initialized = false;
     }
   }

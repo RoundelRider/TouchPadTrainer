@@ -1,4 +1,5 @@
 #include <Adafruit_NeoPixel.h>
+#include "CapTouch.h"
 
 #define LED_COLOR_WHITE 0xFFFFFF
 #define LED_COLOR_RED 0xFF0000
@@ -22,11 +23,14 @@
 
 class TrainerPanel {
 public:
-  TrainerPanel(uint16_t pads, uint16_t leds_per_pad, Adafruit_NeoPixel *led_array);
+  TrainerPanel(uint16_t pads, uint16_t leds_per_pad, Adafruit_NeoPixel *led_array, uint16_t *translation_table = NULL);
+  ~TrainerPanel();
 
+  bool Start();
   void ProcessCommand(const char *cmd);
 
   void Tick();
+  void CheckTouch();
   void Touch(uint16_t touchedPadId, uint32_t touchMs);
 
   bool isTrainingActive() {
@@ -48,12 +52,21 @@ protected:
   void SetPadLeds(uint16_t pad, uint32_t color, bool clear = true, bool show = true);
   uint32_t GetLedColorFromString(char *color_string);
 
+  void ClearTouch();
+
   void SendPadResult();
+
+  uint16_t TranslatePad(uint16_t from_pad, bool reverse = false);
 
   // physical configuration
   uint16_t pad_count;
   uint16_t leds_per_pad;
   Adafruit_NeoPixel *led_array;
+  CapTouch *cap_touch_0;
+  CapTouch *cap_touch_1;
+
+  // translation
+  uint16_t *translation_table;
 
   // pad information during training
   bool trainingActive;
