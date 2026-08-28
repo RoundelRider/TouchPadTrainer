@@ -59,7 +59,7 @@ void setup() {
 
   // NeoPixel init
   led_array.begin();
-  led_array.setBrightness(90);
+  led_array.setBrightness(10);
   trainer.ClearLeds();
 
   if (!trainer.Start()) {

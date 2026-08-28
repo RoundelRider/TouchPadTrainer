@@ -13,7 +13,6 @@ TrainerPanel::TrainerPanel(uint16_t pads, uint16_t leds_per_pad, Adafruit_NeoPix
     cap_touch_1(NULL),
     translation_table(translation_table) {
   trainingActive = false;
-  ClearLeds();
 }
 
 TrainerPanel::~TrainerPanel() {
@@ -29,6 +28,8 @@ TrainerPanel::~TrainerPanel() {
 
 
 bool TrainerPanel::Start() {
+  ClearLeds(true);
+
   // setup the cap touch sensors and try to connect
   if (cap_touch_0 != NULL)
     delete cap_touch_0;
@@ -364,10 +365,10 @@ void TrainerPanel::SendPadResult() {
 
   // result for a single pad
   if (activePadCount == 1) {
-    // determine if the pad was touched, and if so calcualte the reaction time
+    // determine if the pad was touched, and if so calculate the reaction time
     bool pad_touched = padTouched[0];
     uint32_t reaction_time = 0;
-    if (!pad_touched) {
+    if (pad_touched) {
       reaction_time = padTouchMs[0] - padStartMs;
     }
 
@@ -380,9 +381,9 @@ void TrainerPanel::SendPadResult() {
   else {
     // determine if both pads were touched
     bool pad_touched = padTouched[0] && padTouched[1];
-    uint32_t reaction_time = max(padTouchMs[0], padTouchMs[1]) - padStartMs;
-    if (!pad_touched)
-      reaction_time = padEndMs - padStartMs;
+    uint32_t reaction_time = 0;
+    if (pad_touched)
+      reaction_time = max(padTouchMs[0], padTouchMs[1]) - padStartMs;
 
     Serial.print("DOUBLE_PAD_RESULT ");
     Serial.print(logical_pad_0);
