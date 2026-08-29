@@ -300,9 +300,9 @@ class TestPanelWidget(QWidget):
         self._phase_lbl.setText(f"😴  Rest break — {duration_ms // 1000}s…")
         self._audio.play_rest()
 
-    @pyqtSlot(int, int, int, bool)
+    @pyqtSlot(int, int, str, bool)
     def _on_trial_started(
-        self, panel: int, pad: int, color: int, expect: bool
+        self, panel: int, pad: int, color: str, expect: bool
     ) -> None:
         # Clear all grids then light the target pad
         for g in self._pad_grids:

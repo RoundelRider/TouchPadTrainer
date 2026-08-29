@@ -94,7 +94,7 @@ void TrainerPanel::ProcessCommand(const char *cmd) {
     char colorStr[13];
     char expectTouchStr[7];
     uint32_t timeout = 0;
-    if (sscanf(cmd + strlen(CMD_TOUCH_SINGLE) + 1, "%d %12s %6s %u", &padNumber, colorStr, expectTouchStr, &timeout)) {
+    if (sscanf(cmd + strlen(CMD_TOUCH_SINGLE) + 1, "%d %12s %6s %u", &padNumber, colorStr, expectTouchStr, &timeout) == 4) {
       uint32_t color = GetLedColorFromString(colorStr);
       bool expectTouch = true;
       if (strcmp(expectTouchStr, "FALSE") == 0)
@@ -113,16 +113,16 @@ void TrainerPanel::ProcessCommand(const char *cmd) {
     char colorStr[13];
     char expectTouchStr[7];
     uint32_t timeout = 0;
-    if (sscanf(cmd + strlen(CMD_TOUCH_DOUBLE) + 1, "%d %d %12s %6s %u", &padNumber1, &padNumber2, colorStr, expectTouchStr, &timeout)) {
+    if (sscanf(cmd + strlen(CMD_TOUCH_DOUBLE) + 1, "%d %d %12s %6s %u", &padNumber1, &padNumber2, colorStr, expectTouchStr, &timeout) == 5) {
       uint32_t color = GetLedColorFromString(colorStr);
       bool expectTouch = true;
       if (strcmp(expectTouchStr, "FALSE") == 0)
-        bool expectTouch = false;
+        expectTouch = false;
 
       StartDoubleTouch(padNumber1, padNumber2, color, expectTouch, timeout);
     } else {
       Serial.print("ERROR: Invalid ");
-      Serial.print(CMD_TOUCH_SINGLE);
+      Serial.print(CMD_TOUCH_DOUBLE);
       Serial.println(" command parameters. Expected: <pad number> <Color: WHITE|GREEN|RED> <ExpectTouch: TRUE|FALSE> <timeout ms>");
     }
   } else if (strncmp(cmd, CMD_CANCEL, strlen(CMD_CANCEL)) == 0) {
@@ -217,7 +217,7 @@ void TrainerPanel::ClearLeds(bool show) {
 }
 
 void TrainerPanel::CheckOrientation(bool enable) {
-  // if enable is true, then turn 1 led on on pad 1, and two on pad 2
+  // if enable is true, light led 0 on logical pad 1 so orientation can be verified
   ClearLeds(false);
   if (enable) {
     // led 0 on pad 1

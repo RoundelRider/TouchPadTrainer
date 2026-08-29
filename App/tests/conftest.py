@@ -52,7 +52,7 @@ def make_config(
     test_type: TestType = TestType.SINGLE_WHITE,
     num_trials: int = 5,
     timeout_ms: int = 2_000,
-    isi_ms: int = 0,           # zero so tests run fast
+    isi_ms: int = 0,           # zero so tests run fast (sets both isi_min/max_ms)
     warmup_trials: int = 0,
     pad_order: PadOrder = PadOrder.SEQUENTIAL,
     num_panels: int = 1,
@@ -73,7 +73,8 @@ def make_config(
         test_type=test_type,
         num_trials=num_trials,
         timeout_ms=timeout_ms,
-        isi_ms=isi_ms,
+        isi_min_ms=isi_ms,
+        isi_max_ms=isi_ms,
         warmup_trials=warmup_trials,
         pad_order=pad_order,
         num_panels=num_panels,

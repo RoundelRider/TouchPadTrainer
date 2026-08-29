@@ -303,22 +303,26 @@ def _make_mock_serial():
 
         def send_test_start(self):
             self.commands.append("test_start")
+            # Simulate the Arduino's "PATTERN COMPLETE" reply so the runner's
+            # wait for pattern completion returns immediately in tests.
+            self.response_received.emit(ArduinoResponse(raw="PATTERN COMPLETE"))
 
         def send_test_end(self):
             self.commands.append("test_end")
+            self.response_received.emit(ArduinoResponse(raw="PATTERN COMPLETE"))
 
-        def send_single_touch(self, panel, pad, color, expect_touch, timeout_ms):
+        def send_single_touch(self, pad, color, expect_touch, timeout_ms):
             self.commands.append(
-                f"single:{panel},{pad},color={color},expect={expect_touch}"
+                f"single:{pad},color={color},expect={expect_touch}"
             )
             if self._response is not None:
                 r = self._response
                 # Fire the signal from this thread; runner is also on this thread
                 self.response_received.emit(r)
 
-        def send_dual_touch(self, panel, pad1, pad2, color, expect_touch, timeout_ms):
+        def send_dual_touch(self, pad1, pad2, color, expect_touch, timeout_ms):
             self.commands.append(
-                f"dual:{panel},{pad1},{pad2},color={color},expect={expect_touch}"
+                f"dual:{pad1},{pad2},color={color},expect={expect_touch}"
             )
             if self._response is not None:
                 self.response_received.emit(self._response)
@@ -329,14 +333,14 @@ def _make_mock_serial():
     return MockSerial()
 
 
-def _make_ack(panel=0, pad=0, touched=True, rt=300) -> ArduinoResponse:
-    return ArduinoResponse(panel=panel, pad=pad, touched=touched,
-                           response_time_ms=rt)
+def _make_ack(pad=0, touched=True, rt=300) -> ArduinoResponse:
+    return ArduinoResponse(pad=pad, touched=touched,
+                           reaction_time_ms=rt)
 
 
 def _make_timeout(rt=2000) -> ArduinoResponse:
-    return ArduinoResponse(panel=0, pad=0, touched=False,
-                           response_time_ms=rt,
+    return ArduinoResponse(pad=0, touched=False,
+                           reaction_time_ms=rt,
                            error="Timeout", is_timeout=True)
 
 
@@ -472,9 +476,9 @@ class TestRunnerIntegration(unittest.TestCase):
         call_count = [0]
         original_send = mock_serial.send_single_touch
 
-        def send_and_maybe_cancel(panel, pad, color, expect_touch, timeout_ms):
+        def send_and_maybe_cancel(pad, color, expect_touch, timeout_ms):
             call_count[0] += 1
-            original_send(panel, pad, color, expect_touch, timeout_ms)
+            original_send(pad, color, expect_touch, timeout_ms)
             if call_count[0] == 3:
                 runner.cancel()
 

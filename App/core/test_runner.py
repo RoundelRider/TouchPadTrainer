@@ -31,7 +31,7 @@ import time
 import logging
 from typing import Optional
 
-from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot
+from PyQt6.QtCore import QObject, Qt, pyqtSignal, pyqtSlot
 
 from core.serial_manager import (
     SerialManager, ArduinoResponse,
@@ -70,7 +70,7 @@ class TestRunner(QObject):
 
     warmup_started   = pyqtSignal()
     scored_started   = pyqtSignal()
-    trial_started    = pyqtSignal(int, int, int, bool)  # panel, pad, color, expect
+    trial_started    = pyqtSignal(int, int, str, bool)  # panel, pad, color, expect
     trial_completed  = pyqtSignal(object)               # TrialResult
     progress_updated = pyqtSignal(int, int)             # current, total
     rest_prompt      = pyqtSignal(int)                  # duration_ms
@@ -100,7 +100,15 @@ class TestRunner(QObject):
         self._response_lock   = threading.Lock()
 
         # Connect once for the lifetime of this runner.
-        self._serial.response_received.connect(self._on_response_received)
+        #
+        # run() blocks synchronously in threading.Event.wait() and never
+        # spins this thread's Qt event loop, so a QueuedConnection here
+        # would never be delivered (the response would sit queued forever
+        # and every trial would time out). Force a DirectConnection so the
+        # slot runs immediately on the emitting (serial worker) thread.
+        self._serial.response_received.connect(
+            self._on_response_received, Qt.ConnectionType.DirectConnection
+        )
 
     # ------------------------------------------------------------------
     # Public API
@@ -136,8 +144,16 @@ class TestRunner(QObject):
             self.test_finished.emit(session)
             return
 
+        self._arm_response()
         self._serial.send_test_start()
-        time.sleep(0.5)   # let the start-pattern blink finish
+        self._wait_for_response(15_000)   # wait for PATTERN COMPLETE (or give up)
+
+        # ---- Random pre-test delay (anti-anticipation) ------------------
+        if cfg.pre_test_delay_max_ms > 0:
+            delay_ms = random.uniform(
+                cfg.pre_test_delay_min_ms, cfg.pre_test_delay_max_ms
+            )
+            self._interruptible_sleep(delay_ms / 1_000.0)
 
         # ---- Warm-up block (not scored) --------------------------------
         if cfg.warmup_trials > 0:
@@ -161,7 +177,9 @@ class TestRunner(QObject):
             return
 
         # ---- Wrap up ---------------------------------------------------
+        self._arm_response()
         self._serial.send_test_end()
+        self._wait_for_response(15_000)   # wait for PATTERN COMPLETE (or give up)
         session.end_time = _now()
         logger.info(
             "Test finished — %d trials, overall mean RT %d ms",
@@ -216,6 +234,9 @@ class TestRunner(QObject):
             self.trial_started.emit(pad_cfg.panel, pad_cfg.pad, color, expect_touch)
 
             # ---- Send command to Arduino --------------------------------
+            # Arm the response bridge *before* sending so a fast reply
+            # can't arrive and be discarded between send and wait.
+            self._arm_response()
             if pad2_cfg is None:
                 self._serial.send_single_touch(
                     pad_cfg.pad + 1, color,   # +1: serial API is 1-based
@@ -235,7 +256,7 @@ class TestRunner(QObject):
                 rt      = cfg.timeout_ms
                 touched = False
             else:
-                rt      = response.response_time_ms
+                rt      = response.reaction_time_ms
                 touched = response.touched
 
             # ---- Record trial result -----------------------------------
@@ -256,8 +277,9 @@ class TestRunner(QObject):
                 self.progress_updated.emit(i + 1, total_scored)
 
             # ---- Inter-stimulus interval --------------------------------
-            if cfg.isi_ms > 0:
-                self._interruptible_sleep(cfg.isi_ms / 1_000.0)
+            if cfg.isi_max_ms > 0:
+                isi_ms = random.uniform(cfg.isi_min_ms, cfg.isi_max_ms)
+                self._interruptible_sleep(isi_ms / 1_000.0)
 
         return False   # completed normally
 
@@ -316,9 +338,9 @@ class TestRunner(QObject):
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _decide_stimulus(cfg: TestConfiguration) -> tuple[bool, int]:
+    def _decide_stimulus(cfg: TestConfiguration) -> tuple[bool, str]:
         """
-        Return (expect_touch, color_code) for the next trial.
+        Return (expect_touch, color) for the next trial.
 
         Selective modes randomly decide whether to expect a touch based on the
         configured green:red ratio.
@@ -351,17 +373,22 @@ class TestRunner(QObject):
             self._pending_response = response
         self._response_event.set()
 
-    def _wait_for_response(self, timeout_ms: int) -> Optional[ArduinoResponse]:
-        """
-        Block the runner thread until a response arrives or *timeout_ms* elapses.
-
-        Returns the ArduinoResponse, or None if the wait timed out without
-        any response being delivered.
-        """
+    def _arm_response(self) -> None:
+        """Clear any stale response state before sending a new command."""
         self._response_event.clear()
         with self._response_lock:
             self._pending_response = None
 
+    def _wait_for_response(self, timeout_ms: int) -> Optional[ArduinoResponse]:
+        """
+        Block the runner thread until a response arrives or *timeout_ms* elapses.
+
+        Callers must call _arm_response() before sending the command that
+        the response corresponds to, so a fast reply can't be discarded.
+
+        Returns the ArduinoResponse, or None if the wait timed out without
+        any response being delivered.
+        """
         fired = self._response_event.wait(timeout=timeout_ms / 1_000.0)
         if not fired:
             logger.warning("_wait_for_response timed out after %d ms", timeout_ms)

@@ -27,11 +27,11 @@ from PyQt6.QtGui     import (QPainter, QColor, QBrush, QPen,
                               QFont, QPainterPath)
 from PyQt6.QtWidgets import QWidget, QGridLayout, QSizePolicy
 
-# Arduino LED colour codes → HTML colours
-_COLOR_MAP: dict[int, str] = {
-    0: "#FFFFFF",   # white
-    1: "#00C853",   # green
-    2: "#F44336",   # red
+# Arduino LED colour names (text protocol) → HTML colours
+_COLOR_MAP: dict[str, str] = {
+    "WHITE": "#FFFFFF",
+    "GREEN": "#00C853",
+    "RED":   "#F44336",
 }
 
 _IDLE_COLOR    = "#E0E0E0"
@@ -216,18 +216,18 @@ class PadGridWidget(QWidget):
     # Public API — lighting
     # ------------------------------------------------------------------
 
-    def light_pad(self, pad: int, color_code: int) -> None:
+    def light_pad(self, pad: int, color_name: str) -> None:
         """
-        Light pad *pad* using an Arduino colour code.
+        Light pad *pad* using an Arduino protocol colour name.
 
         Parameters
         ----------
         pad        : 0-based pad index (0–15)
-        color_code : 0 = white, 1 = green, 2 = red
+        color_name : "WHITE" | "GREEN" | "RED"
         """
         if 0 <= pad < 16:
             self._cells[pad].set_active(
-                _COLOR_MAP.get(color_code, "#FFFFFF"))
+                _COLOR_MAP.get(color_name, "#FFFFFF"))
 
     def light_pad_hex(self, pad: int, hex_color: str) -> None:
         """Light pad *pad* with an arbitrary HTML hex colour."""
