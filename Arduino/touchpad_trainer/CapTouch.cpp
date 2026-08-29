@@ -63,6 +63,10 @@ bool CapTouchMPR121::begin() {
     if (mpr121->begin(i2c_addr)) {
       mpr121->setAutoconfig(true);
       mpr121->setThresholds(TOUCH_THRESHOLD, RELEASE_THRESHOLD);
+      // Require multiple consecutive samples above/below threshold before
+      // registering a touch/release, to reject brief noise spikes.
+      mpr121->writeRegister(MPR121_DEBOUNCE,
+                             (DEBOUNCE_TOUCH << 4) | DEBOUNCE_RELEASE);
       initialized = true;
       return true;
     }

@@ -24,6 +24,15 @@
 #define RELEASE_THRESHOLD 10
 #define PADS_PER_CAP_CONTROLLER 12
 
+// MPR121 debounce register (0x5B): bits [6:4] = consecutive touch samples
+// required before a touch registers, bits [2:0] = consecutive release
+// samples required before a release registers. Each sample is ~1ms with
+// the library's default filter/timing config. Raising DEBOUNCE_TOUCH
+// rejects brief noise spikes at the cost of a little added touch latency;
+// DEBOUNCE_RELEASE is kept low so releases stay responsive.
+#define DEBOUNCE_TOUCH 2
+#define DEBOUNCE_RELEASE 1
+
 
 class CapTouch {
 public:
