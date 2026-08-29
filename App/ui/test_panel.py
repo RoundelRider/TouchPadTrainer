@@ -11,7 +11,9 @@ Responsibilities
 - Orientation-check button
 - Start / Cancel buttons
 - Progress bar and phase label
-- Live 4×4 pad grid (mirrors physical pad state in real time)
+- Live 4×4 pad grid: lights the active stimulus pad(s), then marks each
+  pad green (good), yellow (slow), or red (missed) as its trial completes,
+  building up a real-time picture of the whole session as it runs
 - Scrolling trial log (last 10 trials)
 - Wires TestRunner onto a QThread; saves the SessionResult when done
 """
@@ -57,6 +59,7 @@ class TestPanelWidget(QWidget):
         self._audio           = AudioCue()
         self._runner: Optional[TestRunner] = None
         self._thread: Optional[QThread]    = None
+        self._active_cfg: Optional[TestConfiguration] = None
         self._trial_log_lines: list[str]   = []
         self._pad_grids: list[PadGridWidget] = []
         self._grid_groups: list[QGroupBox]   = []
@@ -252,6 +255,7 @@ class TestPanelWidget(QWidget):
             return
 
         pid = self._pid_edit.text().strip() or "anonymous"
+        self._active_cfg = cfg
 
         # Reset UI
         self._build_grids(cfg.num_panels)
@@ -272,8 +276,7 @@ class TestPanelWidget(QWidget):
         self._thread.started.connect(self._runner.run)
         self._runner.warmup_started.connect(
             lambda: self._phase_lbl.setText("⚙  Warm-up trials…"))
-        self._runner.scored_started.connect(
-            lambda: self._phase_lbl.setText("▶  Scored trials running…"))
+        self._runner.scored_started.connect(self._on_scored_started)
         self._runner.rest_prompt.connect(self._on_rest_prompt)
         self._runner.trial_started.connect(self._on_trial_started)
         self._runner.trial_completed.connect(self._on_trial_completed)
@@ -300,13 +303,20 @@ class TestPanelWidget(QWidget):
         self._phase_lbl.setText(f"😴  Rest break — {duration_ms // 1000}s…")
         self._audio.play_rest()
 
+    def _on_scored_started(self) -> None:
+        self._phase_lbl.setText("▶  Scored trials running…")
+        # Warm-up trials shouldn't pollute the real-time result picture —
+        # start the scored block with a clean grid.
+        for g in self._pad_grids:
+            g.clear_all()
+
     @pyqtSlot(int, int, str, bool)
     def _on_trial_started(
         self, panel: int, pad: int, color: str, expect: bool
     ) -> None:
-        # Clear all grids then light the target pad
-        for g in self._pad_grids:
-            g.clear_all()
+        # Light the target pad with the stimulus colour. Previously
+        # completed pads are left showing their result colour so the
+        # grid builds up a real-time picture of the session as it runs.
         if panel < len(self._pad_grids):
             self._pad_grids[panel].light_pad(pad, color)
         if self._tone_chk.isChecked():
@@ -314,17 +324,28 @@ class TestPanelWidget(QWidget):
 
     @pyqtSlot(object)
     def _on_trial_completed(self, trial: TrialResult) -> None:
-        # Clear the pad that just finished
-        if trial.panel < len(self._pad_grids):
-            self._pad_grids[trial.panel].clear_pad(trial.pad)
+        # Mark the pad(s) that just finished with their result colour
+        # (green = good, yellow = slow, red = missed) instead of clearing
+        # them, so the grid shows results in real time as the test runs.
+        if self._active_cfg and trial.panel < len(self._pad_grids):
+            color = self._active_cfg.color_for_trial(trial)
+            grid = self._pad_grids[trial.panel]
+            grid.light_pad_hex(trial.pad, color)
+            if trial.pad2 is not None:
+                grid.light_pad_hex(trial.pad2, color)
 
         # Build log entry
-        outcome = (
-            "✓ hit"   if trial.is_hit else
-            "✗ miss"  if trial.is_omission_error else
-            "✗ FA"    if trial.is_commission_error else
-            "✓ CR"
-        )
+        threshold = (self._active_cfg.good_rt_threshold_ms
+                     if self._active_cfg else None)
+        if trial.is_hit:
+            outcome = ("✓ good" if threshold is not None
+                       and trial.reaction_time_ms <= threshold else "⚠ slow")
+        elif trial.is_omission_error:
+            outcome = "✗ miss"
+        elif trial.is_commission_error:
+            outcome = "✗ FA"
+        else:
+            outcome = "✓ CR"
         prefix = "[W]" if trial.is_warmup else f" {trial.trial_num:3d}"
         entry  = (
             f"{prefix}  P{trial.panel+1}/#{trial.pad+1}"
@@ -346,8 +367,8 @@ class TestPanelWidget(QWidget):
     def _on_test_finished(self, session: SessionResult) -> None:
         self._teardown_thread()
         self._phase_lbl.setText("✅  Test complete!")
-        for g in self._pad_grids:
-            g.clear_all()
+        # Leave the live grid showing its accumulated result colours as the
+        # at-a-glance summary — it gets reset on the next Start Test.
         self._audio.play_test_end()
 
         try:

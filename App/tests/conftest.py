@@ -25,7 +25,6 @@ from data.models import (
     TestType,
     PadOrder,
     PadConfig,
-    ReactionBand,
     TrialResult,
     SessionResult,
     CalibrationProfile,

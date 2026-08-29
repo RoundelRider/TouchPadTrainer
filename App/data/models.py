@@ -11,7 +11,6 @@ Class hierarchy
 ---------------
 TestConfiguration
     └── pads: list[PadConfig]
-    └── rt_bands: list[ReactionBand]
 
 SessionResult
     └── trials: list[TrialResult]
@@ -39,6 +38,14 @@ def _now() -> str:
     return datetime.now().isoformat()
 
 
+#: Colours used to mark a trial's outcome on the live pad grid and the
+#: results heatmap.
+COLOR_GOOD    = "#43A047"   # hit, reaction time at or under the threshold
+COLOR_SLOW    = "#FFB300"   # hit, but slower than the threshold
+COLOR_MISS    = "#E53935"   # omission or commission error
+COLOR_NEUTRAL = "#90A4AE"   # correct rejection — nothing expected, nothing touched
+
+
 # ---------------------------------------------------------------------------
 # Enumerations
 # ---------------------------------------------------------------------------
@@ -61,33 +68,6 @@ class PadOrder(IntEnum):
 # ---------------------------------------------------------------------------
 # Configuration building blocks
 # ---------------------------------------------------------------------------
-
-@dataclass
-class ReactionBand:
-    """
-    One coloured band in the RT colour scale.
-
-    Bands are sorted by *max_ms* ascending.  A trial whose RT falls at or
-    below *max_ms* is assigned *color*.  The last band acts as a catch-all.
-
-    Attributes
-    ----------
-    max_ms  : Upper bound of this band in milliseconds.
-    color   : HTML hex colour string, e.g. ``"#00C800"``.
-    label   : Short human-readable label, e.g. ``"Excellent"``.
-    """
-    max_ms: int
-    color:  str
-    label:  str
-
-    def to_dict(self) -> dict:
-        return {"max_ms": self.max_ms, "color": self.color, "label": self.label}
-
-    @classmethod
-    def from_dict(cls, d: dict) -> "ReactionBand":
-        return cls(max_ms=int(d["max_ms"]), color=str(d["color"]),
-                   label=str(d.get("label", "")))
-
 
 @dataclass
 class PadConfig:
@@ -149,12 +129,9 @@ class PadConfig:
 # Test configuration
 # ---------------------------------------------------------------------------
 
-#: Default reaction-time band colours (best → worst)
-_DEFAULT_BAND_COLORS = ["#00C800", "#90EE90", "#FFD700", "#FFD070", "#FF3030"]
-_DEFAULT_BAND_LABELS = ["Excellent", "Good", "Fair", "Slow", "Miss"]
-
-#: Maximum number of RT bands allowed
-MAX_RT_BANDS = 5
+#: Default "good" reaction-time threshold (ms). Hits at or under this value
+#: are scored good (green); slower hits are scored slow (yellow).
+DEFAULT_GOOD_RT_THRESHOLD_MS = 500
 
 
 @dataclass
@@ -204,7 +181,9 @@ class TestConfiguration:
     green_red_ratio: float   = 0.5  # proportion of trials that expect a touch
 
     # ---- Result display -----------------------------------------------------
-    rt_bands: list[ReactionBand] = field(default_factory=list)
+    # Hits at or under this reaction time are scored "good" (green);
+    # slower hits are scored "slow" (yellow).
+    good_rt_threshold_ms: int = DEFAULT_GOOD_RT_THRESHOLD_MS
 
     # ---- Post-init ----------------------------------------------------------
 
@@ -216,43 +195,51 @@ class TestConfiguration:
             self.pad_order = PadOrder(int(self.pad_order))
         # Clamp ratio to [0, 1]
         self.green_red_ratio = max(0.0, min(1.0, self.green_red_ratio))
-        # Populate default bands if none supplied
-        if not self.rt_bands:
-            self.reset_default_bands()
 
-    # ---- Band helpers -------------------------------------------------------
-
-    def reset_default_bands(self) -> None:
-        """Replace rt_bands with five evenly-spaced default bands."""
-        step = max(1, self.timeout_ms // MAX_RT_BANDS)
-        self.rt_bands = [
-            ReactionBand(
-                max_ms=(i + 1) * step,
-                color=_DEFAULT_BAND_COLORS[i],
-                label=_DEFAULT_BAND_LABELS[i],
-            )
-            for i in range(MAX_RT_BANDS)
-        ]
+    # ---- Scoring helpers ------------------------------------------------------
 
     def color_for_rt(self, rt_ms: int) -> str:
-        """
-        Return the HTML colour that corresponds to *rt_ms*.
+        """Return the marker colour for a hit with this reaction time."""
+        return COLOR_GOOD if rt_ms <= self.good_rt_threshold_ms else COLOR_SLOW
 
-        Bands are evaluated in ascending order; the first band whose
-        *max_ms* is ≥ *rt_ms* wins.  If *rt_ms* exceeds all bands the
-        last band's colour is returned.
-        """
-        for band in sorted(self.rt_bands, key=lambda b: b.max_ms):
-            if rt_ms <= band.max_ms:
-                return band.color
-        return self.rt_bands[-1].color if self.rt_bands else "#888888"
+    def label_for_rt(self, rt_ms: int) -> str:
+        """Return a short human-readable rating for a hit with this reaction time."""
+        return "Good" if rt_ms <= self.good_rt_threshold_ms else "Slow"
 
-    def band_for_rt(self, rt_ms: int) -> Optional[ReactionBand]:
-        """Return the matching ReactionBand object, or None if bands are empty."""
-        for band in sorted(self.rt_bands, key=lambda b: b.max_ms):
-            if rt_ms <= band.max_ms:
-                return band
-        return self.rt_bands[-1] if self.rt_bands else None
+    def color_for_trial(self, trial: "TrialResult") -> str:
+        """Return the outcome marker colour for a completed trial."""
+        if trial.is_hit:
+            return self.color_for_rt(trial.reaction_time_ms)
+        if trial.is_correct_rejection:
+            return COLOR_NEUTRAL
+        return COLOR_MISS   # omission or commission error
+
+    def label_for_trial(self, trial: "TrialResult") -> str:
+        """Return a short human-readable rating for a completed trial."""
+        if trial.is_hit:
+            return self.label_for_rt(trial.reaction_time_ms)
+        if trial.is_correct_rejection:
+            return "OK"
+        return "Miss" if trial.is_omission_error else "False alarm"
+
+    def score_summary(self, session: "SessionResult") -> dict:
+        """
+        Summarise a session's scored trials against this configuration's
+        good-response-time threshold.
+
+        Returns a dict with keys: good, slow, missed, total, score_pct.
+        *score_pct* is the percentage of scored trials that were both
+        correct and at or under the threshold.
+        """
+        scored = session.scored_trials
+        good = sum(1 for t in scored
+                   if t.is_hit and t.reaction_time_ms <= self.good_rt_threshold_ms)
+        slow = sum(1 for t in scored
+                   if t.is_hit and t.reaction_time_ms > self.good_rt_threshold_ms)
+        missed = len(scored) - good - slow
+        score_pct = (good / len(scored) * 100) if scored else 0.0
+        return {"good": good, "slow": slow, "missed": missed,
+                "total": len(scored), "score_pct": score_pct}
 
     # ---- Pad helpers --------------------------------------------------------
 
@@ -297,8 +284,9 @@ class TestConfiguration:
         if self.pre_test_delay_min_ms > self.pre_test_delay_max_ms:
             issues.append(
                 "Pre-test delay minimum must be less than or equal to maximum.")
-        if len(self.rt_bands) > MAX_RT_BANDS:
-            issues.append(f"Maximum {MAX_RT_BANDS} reaction-time bands allowed.")
+        if self.good_rt_threshold_ms < 1:
+            issues.append(
+                "Good response time threshold must be a positive number of milliseconds.")
         if self.test_type in (TestType.DOUBLE_WHITE, TestType.DOUBLE_SELECTIVE):
             if not self.adjacent_pairs():
                 issues.append(
@@ -329,7 +317,7 @@ class TestConfiguration:
             "pre_test_delay_max_ms": self.pre_test_delay_max_ms,
             "pad_order":       int(self.pad_order),
             "green_red_ratio": self.green_red_ratio,
-            "rt_bands":        [b.to_dict() for b in self.rt_bands],
+            "good_rt_threshold_ms": self.good_rt_threshold_ms,
         }
 
     @classmethod
@@ -357,8 +345,12 @@ class TestConfiguration:
             pre_test_delay_max_ms = int(d.get("pre_test_delay_max_ms", 0)),
             pad_order       = PadOrder(int(d.get("pad_order", 1))),
             green_red_ratio = float(d.get("green_red_ratio", 0.5)),
-            rt_bands        = [ReactionBand.from_dict(b)
-                               for b in d.get("rt_bands", [])],
+            # Legacy configs stored a list of coloured RT bands instead of a
+            # single threshold; fall back to the fastest band's cutoff.
+            good_rt_threshold_ms = int(d.get(
+                "good_rt_threshold_ms",
+                _legacy_threshold_from_bands(d.get("rt_bands")),
+            )),
         )
 
     def to_json(self) -> str:
@@ -733,6 +725,19 @@ class CalibrationProfile:
 # ---------------------------------------------------------------------------
 # Remaining module-level helpers
 # ---------------------------------------------------------------------------
+
+def _legacy_threshold_from_bands(bands: Optional[list]) -> int:
+    """
+    Best-effort migration for configs saved before the single-threshold
+    scoring model: use the fastest band's cutoff as the new "good" threshold.
+    """
+    if bands:
+        try:
+            return int(bands[0]["max_ms"])
+        except (KeyError, TypeError, ValueError):
+            pass
+    return DEFAULT_GOOD_RT_THRESHOLD_MS
+
 
 def _trial_outcome(trial: TrialResult) -> str:
     """Return a short string label for a trial's outcome."""

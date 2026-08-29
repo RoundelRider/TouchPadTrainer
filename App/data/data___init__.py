@@ -6,7 +6,6 @@ Public surface
 Models (data/models.py)
     TestType            — enum of available test modes
     PadOrder            — enum of pad-selection strategies
-    ReactionBand        — one coloured RT band in a configuration
     PadConfig           — panel + pad index + faulty flag
     TestConfiguration   — complete named test configuration
     TrialResult         — result of a single trial
@@ -21,7 +20,6 @@ Storage (data/storage.py)
 from data.models import (
     TestType,
     PadOrder,
-    ReactionBand,
     PadConfig,
     TestConfiguration,
     TrialResult,
@@ -34,7 +32,6 @@ __all__ = [
     # models
     "TestType",
     "PadOrder",
-    "ReactionBand",
     "PadConfig",
     "TestConfiguration",
     "TrialResult",

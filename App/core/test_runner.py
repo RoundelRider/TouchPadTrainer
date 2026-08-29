@@ -177,9 +177,9 @@ class TestRunner(QObject):
             return
 
         # ---- Wrap up ---------------------------------------------------
-        self._arm_response()
+        # Fire-and-forget: the results should appear immediately, not
+        # wait for the Arduino's red end-of-test LED flourish to finish.
         self._serial.send_test_end()
-        self._wait_for_response(15_000)   # wait for PATTERN COMPLETE (or give up)
         session.end_time = _now()
         logger.info(
             "Test finished — %d trials, overall mean RT %d ms",

@@ -6,9 +6,8 @@ Unit tests for data.models — no I/O, no Qt, no hardware required.
 Coverage targets
 ----------------
 TestType / PadOrder          — enum values and coercions
-ReactionBand                 — dict round-trip
 PadConfig                    — adjacency, row/col, display properties, round-trip
-TestConfiguration            — defaults, validation, band lookup, copy, round-trip
+TestConfiguration            — defaults, validation, scoring, copy, round-trip
 TrialResult                  — error classification, CSV row, round-trip
 SessionResult                — stats, accuracy, error counts, per-pad stats
 CalibrationProfile           — CRUD on entries, round-trip
@@ -26,7 +25,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
 from data.models import (
     TestType, PadOrder,
-    ReactionBand, PadConfig,
+    PadConfig,
     TestConfiguration, TrialResult, SessionResult,
     CalibrationProfile, CalibrationEntry,
     _compute_stats,
@@ -60,26 +59,6 @@ class TestEnums(unittest.TestCase):
     def test_invalid_test_type_raises(self):
         with self.assertRaises(ValueError):
             TestType(99)
-
-
-# ===========================================================================
-# ReactionBand
-# ===========================================================================
-
-class TestReactionBand(unittest.TestCase):
-
-    def test_round_trip(self):
-        band = ReactionBand(max_ms=500, color="#00FF00", label="Good")
-        d    = band.to_dict()
-        band2 = ReactionBand.from_dict(d)
-        self.assertEqual(band2.max_ms, 500)
-        self.assertEqual(band2.color,  "#00FF00")
-        self.assertEqual(band2.label,  "Good")
-
-    def test_from_dict_missing_label(self):
-        """label is optional in stored data — should default to empty string."""
-        band = ReactionBand.from_dict({"max_ms": 300, "color": "#AAA"})
-        self.assertEqual(band.label, "")
 
 
 # ===========================================================================
@@ -150,36 +129,59 @@ class TestTestConfiguration(unittest.TestCase):
     def setUp(self):
         self.cfg = make_config()
 
-    def test_default_rt_bands_created(self):
-        """Configuration must auto-create 5 RT bands when none supplied."""
-        self.assertEqual(len(self.cfg.rt_bands), 5)
+    def test_default_good_rt_threshold(self):
+        """Configuration must default to a positive good-RT threshold."""
+        self.assertGreater(self.cfg.good_rt_threshold_ms, 0)
 
-    def test_default_bands_cover_full_timeout(self):
-        """Last band max_ms must equal timeout_ms."""
-        last = sorted(self.cfg.rt_bands, key=lambda b: b.max_ms)[-1]
-        self.assertEqual(last.max_ms, self.cfg.timeout_ms)
+    def test_color_for_rt_at_threshold_is_good(self):
+        self.cfg.good_rt_threshold_ms = 500
+        self.assertEqual(self.cfg.color_for_rt(500), "#43A047")
 
-    def test_color_for_rt_first_band(self):
-        """RT at or below first band max → first band color."""
-        bands = sorted(self.cfg.rt_bands, key=lambda b: b.max_ms)
-        color = self.cfg.color_for_rt(bands[0].max_ms)
-        self.assertEqual(color, bands[0].color)
+    def test_color_for_rt_over_threshold_is_slow(self):
+        self.cfg.good_rt_threshold_ms = 500
+        self.assertEqual(self.cfg.color_for_rt(501), "#FFB300")
 
-    def test_color_for_rt_last_band(self):
-        """RT beyond all bands → last band color."""
-        color = self.cfg.color_for_rt(99_999)
-        bands = sorted(self.cfg.rt_bands, key=lambda b: b.max_ms)
-        self.assertEqual(color, bands[-1].color)
+    def test_label_for_rt_at_threshold_is_good(self):
+        self.cfg.good_rt_threshold_ms = 500
+        self.assertEqual(self.cfg.label_for_rt(500), "Good")
 
-    def test_color_for_rt_exact_boundary(self):
-        """Exact boundary value belongs to the lower band."""
-        bands = sorted(self.cfg.rt_bands, key=lambda b: b.max_ms)
-        color = self.cfg.color_for_rt(bands[1].max_ms)
-        self.assertEqual(color, bands[1].color)
+    def test_label_for_rt_over_threshold_is_slow(self):
+        self.cfg.good_rt_threshold_ms = 500
+        self.assertEqual(self.cfg.label_for_rt(501), "Slow")
 
-    def test_band_for_rt_returns_object(self):
-        band = self.cfg.band_for_rt(100)
-        self.assertIsInstance(band, ReactionBand)
+    def test_color_for_trial_hit_good(self):
+        self.cfg.good_rt_threshold_ms = 500
+        t = make_trial(expect_touch=True, actual_touch=True,
+                        reaction_time_ms=300)
+        self.assertEqual(self.cfg.color_for_trial(t), "#43A047")
+
+    def test_color_for_trial_hit_slow(self):
+        self.cfg.good_rt_threshold_ms = 500
+        t = make_trial(expect_touch=True, actual_touch=True,
+                        reaction_time_ms=800)
+        self.assertEqual(self.cfg.color_for_trial(t), "#FFB300")
+
+    def test_color_for_trial_miss(self):
+        t = make_trial(expect_touch=True, actual_touch=False)
+        self.assertEqual(self.cfg.color_for_trial(t), "#E53935")
+
+    def test_color_for_trial_correct_rejection(self):
+        t = make_trial(expect_touch=False, actual_touch=False)
+        self.assertEqual(self.cfg.color_for_trial(t), "#90A4AE")
+
+    def test_score_summary_counts(self):
+        self.cfg.good_rt_threshold_ms = 500
+        session = make_session(n_hits=3, hit_rt=300,
+                                n_omissions=1, n_commissions=1)
+        summary = self.cfg.score_summary(session)
+        self.assertEqual(summary["good"], 3)
+        self.assertEqual(summary["missed"], 2)
+        self.assertEqual(summary["total"], 5)
+
+    def test_score_summary_empty_session(self):
+        summary = self.cfg.score_summary(SessionResult())
+        self.assertEqual(summary["total"], 0)
+        self.assertEqual(summary["score_pct"], 0.0)
 
     def test_active_pads_excludes_faulty(self):
         self.cfg.pads[0].faulty = True
@@ -261,9 +263,10 @@ class TestTestConfiguration(unittest.TestCase):
         cfg2 = TestConfiguration.from_json(self.cfg.to_json())
         self.assertEqual(len(cfg2.pads), len(self.cfg.pads))
 
-    def test_json_round_trip_preserves_rt_bands(self):
+    def test_json_round_trip_preserves_good_rt_threshold(self):
+        self.cfg.good_rt_threshold_ms = 350
         cfg2 = TestConfiguration.from_json(self.cfg.to_json())
-        self.assertEqual(len(cfg2.rt_bands), len(self.cfg.rt_bands))
+        self.assertEqual(cfg2.good_rt_threshold_ms, 350)
 
     def test_from_dict_handles_missing_optional_fields(self):
         """Loading minimal dict should fill in defaults without raising."""
@@ -271,7 +274,7 @@ class TestTestConfiguration(unittest.TestCase):
         cfg = TestConfiguration.from_dict(minimal)
         self.assertEqual(cfg.name, "Minimal")
         self.assertEqual(cfg.num_trials, 10)  # default
-        self.assertEqual(len(cfg.rt_bands), 5)
+        self.assertGreater(cfg.good_rt_threshold_ms, 0)
 
     def test_copy_as_new_has_different_id(self):
         copy = self.cfg.copy_as_new("Copy")
@@ -298,11 +301,6 @@ class TestTestConfiguration(unittest.TestCase):
         self.assertLessEqual(cfg.green_red_ratio, 1.0)
         cfg2 = make_config(green_red_ratio=-0.3)
         self.assertGreaterEqual(cfg2.green_red_ratio, 0.0)
-
-    def test_reset_default_bands(self):
-        self.cfg.rt_bands = []
-        self.cfg.reset_default_bands()
-        self.assertEqual(len(self.cfg.rt_bands), 5)
 
 
 # ===========================================================================

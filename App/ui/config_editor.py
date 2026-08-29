@@ -13,7 +13,7 @@ Right panel : form editor with:
               - Test type combo
               - Timing & trial settings
               - Randomisation options
-              - Reaction-time band table with colour picker
+              - Good response-time threshold (scoring)
               - Save button
 """
 
@@ -24,19 +24,16 @@ from datetime import datetime
 from typing import Optional
 
 from PyQt6.QtCore    import Qt, pyqtSignal
-from PyQt6.QtGui     import QColor
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFormLayout,
     QGroupBox, QLabel, QLineEdit, QSpinBox, QDoubleSpinBox,
     QComboBox, QPushButton, QCheckBox, QListWidget, QListWidgetItem,
     QMessageBox, QFileDialog, QScrollArea, QSplitter,
-    QColorDialog, QTableWidget, QTableWidgetItem, QHeaderView,
     QAbstractItemView,
 )
 
 from data.models import (
-    TestConfiguration, TestType, PadOrder,
-    PadConfig, ReactionBand,
+    TestConfiguration, TestType, PadOrder, PadConfig,
 )
 from data.storage import StorageManager
 from ui.pad_grid import PadGridWidget
@@ -187,29 +184,17 @@ class ConfigEditorWidget(QWidget):
         rf.addRow("Green : red ratio:",      self._ratio_spin)
         layout.addWidget(rand_grp)
 
-        # ---- RT Bands --------------------------------------------------
-        rt_grp = QGroupBox("Reaction Time Bands  (up to 5)")
-        rtl    = QVBoxLayout(rt_grp)
-        self._rt_table = QTableWidget(5, 3)
-        self._rt_table.setHorizontalHeaderLabels(
-            ["Upper bound (ms)", "Colour", "Label"])
-        self._rt_table.horizontalHeader().setSectionResizeMode(
-            QHeaderView.ResizeMode.Stretch)
-        self._rt_table.setMaximumHeight(175)
-        self._rt_table.setToolTip(
-            "Trials whose RT falls at or below the upper bound are shown "
-            "in that row's colour.  Leave rows blank to use fewer bands.")
-        rtl.addWidget(self._rt_table)
-
-        rt_btn_row = QHBoxLayout()
-        self._rt_color_btn = QPushButton("Pick colour for selected row…")
-        self._rt_color_btn.clicked.connect(self._pick_rt_color)
-        self._rt_reset_btn = QPushButton("Reset to defaults")
-        self._rt_reset_btn.clicked.connect(self._reset_rt_bands)
-        rt_btn_row.addWidget(self._rt_color_btn)
-        rt_btn_row.addWidget(self._rt_reset_btn)
-        rtl.addLayout(rt_btn_row)
-        layout.addWidget(rt_grp)
+        # ---- Scoring -----------------------------------------------------
+        score_grp = QGroupBox("Scoring")
+        sf        = QFormLayout(score_grp)
+        self._good_rt_spin = QSpinBox()
+        self._good_rt_spin.setRange(1, 30000)
+        self._good_rt_spin.setSuffix(" ms")
+        self._good_rt_spin.setToolTip(
+            "A touch at or under this reaction time is scored good (green); "
+            "a slower touch is scored slow (yellow).")
+        sf.addRow("Good response time ≤", self._good_rt_spin)
+        layout.addWidget(score_grp)
 
         # ---- Validation feedback ---------------------------------------
         self._validation_lbl = QLabel("")
@@ -359,14 +344,7 @@ class ConfigEditorWidget(QWidget):
         self._pad_order_combo.setCurrentIndex(max(0, idx2))
         self._ratio_spin.setValue(cfg.green_red_ratio)
 
-        # RT bands
-        self._rt_table.clearContents()
-        for row, band in enumerate(cfg.rt_bands[:5]):
-            self._rt_table.setItem(row, 0, QTableWidgetItem(str(band.max_ms)))
-            ci = QTableWidgetItem(band.color)
-            ci.setBackground(QColor(band.color))
-            self._rt_table.setItem(row, 1, ci)
-            self._rt_table.setItem(row, 2, QTableWidgetItem(band.label))
+        self._good_rt_spin.setValue(cfg.good_rt_threshold_ms)
 
     def _form_to_config(self) -> TestConfiguration:
         pads: list[PadConfig] = []
@@ -378,21 +356,6 @@ class ConfigEditorWidget(QWidget):
                           self._pad_active[panel][pad])
                 if active or faulty:
                     pads.append(PadConfig(panel=panel, pad=pad, faulty=faulty))
-
-        bands: list[ReactionBand] = []
-        for row in range(5):
-            ms_item    = self._rt_table.item(row, 0)
-            color_item = self._rt_table.item(row, 1)
-            label_item = self._rt_table.item(row, 2)
-            if ms_item and ms_item.text().strip():
-                try:
-                    bands.append(ReactionBand(
-                        max_ms=int(ms_item.text()),
-                        color=color_item.text() if color_item else "#888888",
-                        label=label_item.text() if label_item else "",
-                    ))
-                except ValueError:
-                    pass
 
         cfg_id = (self._current_cfg.id
                   if self._current_cfg else str(uuid.uuid4()))
@@ -415,7 +378,7 @@ class ConfigEditorWidget(QWidget):
             pre_test_delay_max_ms = self._pre_delay_max_spin.value(),
             pad_order        = self._pad_order_combo.currentData(),
             green_red_ratio  = self._ratio_spin.value(),
-            rt_bands         = bands,
+            good_rt_threshold_ms = self._good_rt_spin.value(),
         )
 
     # ------------------------------------------------------------------
@@ -515,37 +478,6 @@ class ConfigEditorWidget(QWidget):
             QMessageBox.information(self, "Exported", f"Saved to {path}")
         except Exception as exc:
             QMessageBox.warning(self, "Export Failed", str(exc))
-
-    # ------------------------------------------------------------------
-    # RT band helpers
-    # ------------------------------------------------------------------
-
-    def _pick_rt_color(self) -> None:
-        row = self._rt_table.currentRow()
-        if row < 0:
-            return
-        current_item = self._rt_table.item(row, 1)
-        initial = QColor(current_item.text() if current_item else "#888888")
-        color = QColorDialog.getColor(initial, self, "Choose Band Colour")
-        if color.isValid():
-            item = QTableWidgetItem(color.name())
-            item.setBackground(color)
-            self._rt_table.setItem(row, 1, item)
-
-    def _reset_rt_bands(self) -> None:
-        """Repopulate RT band table from the configuration defaults."""
-        tmp = TestConfiguration(
-            name="tmp",
-            timeout_ms=self._timeout_spin.value(),
-        )
-        tmp.reset_default_bands()
-        self._rt_table.clearContents()
-        for row, band in enumerate(tmp.rt_bands[:5]):
-            self._rt_table.setItem(row, 0, QTableWidgetItem(str(band.max_ms)))
-            ci = QTableWidgetItem(band.color)
-            ci.setBackground(QColor(band.color))
-            self._rt_table.setItem(row, 1, ci)
-            self._rt_table.setItem(row, 2, QTableWidgetItem(band.label))
 
     # ------------------------------------------------------------------
     # Public helpers

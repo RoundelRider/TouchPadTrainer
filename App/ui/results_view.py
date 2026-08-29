@@ -90,6 +90,14 @@ class ResultsViewWidget(QWidget):
         sv.addWidget(self._stats_table)
         lv.addWidget(stats_grp)
 
+        self._score_grp = QGroupBox("Performance Score")
+        scv     = QFormLayout(self._score_grp)
+        self._score_lbl = QLabel("—")
+        f2 = QFont(); f2.setPointSize(13); f2.setBold(True)
+        self._score_lbl.setFont(f2)
+        scv.addRow("Score:", self._score_lbl)
+        lv.addWidget(self._score_grp)
+
         err_grp = QGroupBox("Error Summary")
         ev      = QFormLayout(err_grp)
         self._accuracy_lbl    = QLabel("—")
@@ -124,7 +132,7 @@ class ResultsViewWidget(QWidget):
         pv      = QVBoxLayout(per_grp)
         self._per_pad_table = QTableWidget(0, 5)
         self._per_pad_table.setHorizontalHeaderLabels(
-            ["Panel", "Pad", "N (hits)", "Mean RT (ms)", "Band"])
+            ["Panel", "Pad", "N (hits)", "Mean RT (ms)", "Result"])
         self._per_pad_table.horizontalHeader().setSectionResizeMode(
             QHeaderView.ResizeMode.Stretch)
         self._per_pad_table.setEditTriggers(
@@ -173,8 +181,20 @@ class ResultsViewWidget(QWidget):
         self._commission_lbl.setText(str(s.commission_errors()))
         self._omission_lbl.setText(str(s.omission_errors()))
 
-        # Find the config to get RT-band colours
+        # Find the config to get the scoring threshold / colours
         cfg = self._find_config(s.config_name)
+
+        if cfg:
+            score = cfg.score_summary(s)
+            self._score_grp.setTitle(
+                f"Performance Score  (good ≤ {cfg.good_rt_threshold_ms} ms)")
+            self._score_lbl.setText(
+                f"{score['score_pct']:.0f} %   "
+                f"({score['good']} good · {score['slow']} slow · "
+                f"{score['missed']} missed)")
+        else:
+            self._score_grp.setTitle("Performance Score")
+            self._score_lbl.setText("— (configuration not found)")
 
         # Rebuild heatmap grids
         for grp in self._result_grid_groups:
@@ -206,7 +226,7 @@ class ResultsViewWidget(QWidget):
             sorted(per_pad.items())
         ):
             color  = cfg.color_for_rt(ps["mean"]) if cfg and ps["n"] else "#E0E0E0"
-            label  = cfg.band_for_rt(ps["mean"]).label if cfg and ps["n"] else "—"
+            label  = cfg.label_for_rt(ps["mean"]) if cfg and ps["n"] else "—"
             items  = [panel + 1, pad + 1, ps["n"], ps["mean"], label]
             for c, val in enumerate(items):
                 item = QTableWidgetItem(str(val))
