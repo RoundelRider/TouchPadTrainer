@@ -232,12 +232,12 @@ void TrainerPanel::CheckOrientation(bool enable) {
 
 void TrainerPanel::LedPatternStart() {
   // Flas green leds
-  FlashLeds(3, LED_COLOR_GREEN);
+  FlashLeds(1, LED_COLOR_GREEN);
   Serial.println("PATTERN COMPLETE");
 }
 
 void TrainerPanel::LedPatternEnd() {
-  FlashLeds(3, LED_COLOR_RED);
+  FlashLeds(1, LED_COLOR_RED);
   Serial.println("PATTERN COMPLETE");
 }
 
