@@ -318,10 +318,8 @@ class TestRunner(QObject):
         if cfg.pad_order == PadOrder.SEQUENTIAL:
             return [pool[i % len(pool)] for i in range(num_trials)]
 
-        if cfg.pad_order == PadOrder.RANDOM:
-            return [random.choice(pool) for _ in range(num_trials)]
-
-        # PSEUDO_RANDOM — no immediate repeat of the same pad/pair
+        # RANDOM and PSEUDO_RANDOM both draw randomly, without repeating
+        # the immediately preceding pad/pair.
         sequence: list[tuple[PadConfig, Optional[PadConfig]]] = []
         last: Optional[tuple] = None
         for _ in range(num_trials):

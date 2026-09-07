@@ -190,6 +190,14 @@ class TestBuildSequence(unittest.TestCase):
         for primary, _ in seq:
             self.assertIn(primary.pad, [0, 1, 2, 3])
 
+    def test_random_no_immediate_repeat(self):
+        cfg = make_config(pad_order=PadOrder.RANDOM, num_trials=20,
+                          pad_indices=[0,1,2,3])
+        seq = _build_sequence_direct(cfg, self.pads)
+        for i in range(1, len(seq)):
+            self.assertNotEqual(seq[i][0].pad, seq[i-1][0].pad,
+                                msg=f"Immediate repeat at position {i}")
+
     def test_pseudo_random_no_immediate_repeat(self):
         cfg = make_config(pad_order=PadOrder.PSEUDO_RANDOM, num_trials=20,
                           pad_indices=[0,1,2,3])
