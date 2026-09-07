@@ -24,7 +24,7 @@ CANCEL                       Abort the current touch measurement
 VERSION                      Query firmware version string
 
 Where:
-  <pad>      1-based pad number (as used by TrainerPanel.h)
+  <pad>      0-based pad number (as used by TrainerPanel.h)
   <color>    WHITE | GREEN | RED
   <expect>   TRUE | FALSE
   <timeout>  milliseconds as a decimal integer
@@ -86,7 +86,7 @@ class ArduinoResponse:
 
     Attributes
     ----------
-    pad               : 1-based pad number reported by the Arduino
+    pad               : 0-based pad number reported by the Arduino
     pad2              : second pad for DOUBLE results (0 if single)
     touched           : True if a touch was recorded
     reaction_time_ms  : time from LED-on to touch (ms); timeout value if no touch
@@ -350,7 +350,7 @@ class SerialManager(QObject):
 
         Parameters
         ----------
-        pad          : 1-based pad number
+        pad          : 0-based pad number
         color        : COLOR_WHITE | COLOR_GREEN | COLOR_RED
         expect_touch : True to wait for and report a touch event
         timeout_ms   : give-up time in milliseconds
@@ -371,7 +371,7 @@ class SerialManager(QObject):
 
         Parameters
         ----------
-        pad1, pad2   : 1-based pad numbers (must be adjacent on the same panel)
+        pad1, pad2   : 0-based pad numbers (must be adjacent on the same panel)
         color        : COLOR_WHITE | COLOR_GREEN | COLOR_RED
         expect_touch : True to wait for and report touch events
         timeout_ms   : give-up time in milliseconds

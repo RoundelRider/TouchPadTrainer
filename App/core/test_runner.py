@@ -239,12 +239,12 @@ class TestRunner(QObject):
             self._arm_response()
             if pad2_cfg is None:
                 self._serial.send_single_touch(
-                    pad_cfg.pad + 1, color,   # +1: serial API is 1-based
+                    pad_cfg.pad, color,   # pad numbers are 0-based on the wire
                     expect_touch, cfg.timeout_ms,
                 )
             else:
                 self._serial.send_dual_touch(
-                    pad_cfg.pad + 1, pad2_cfg.pad + 1, color,  # +1: 1-based
+                    pad_cfg.pad, pad2_cfg.pad, color,  # 0-based
                     expect_touch, cfg.timeout_ms,
                 )
 
