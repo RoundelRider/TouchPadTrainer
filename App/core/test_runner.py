@@ -66,6 +66,10 @@ class TestRunner(QObject):
     test_finished(SessionResult)
                         : all trials done; session data is complete
     test_cancelled      : run() returned early because cancel() was called
+    hardware_error(message)
+                        : run() returned early because the MPR121 boards
+                          could not be powered up / verified (no session
+                          was recorded)
     """
 
     warmup_started   = pyqtSignal()
@@ -76,10 +80,14 @@ class TestRunner(QObject):
     rest_prompt      = pyqtSignal(int)                  # duration_ms
     test_finished    = pyqtSignal(object)               # SessionResult
     test_cancelled   = pyqtSignal()
+    hardware_error   = pyqtSignal(str)                  # error message
 
     # How many extra milliseconds to allow beyond the configured timeout
     # when waiting for a serial response (network + processing overhead).
     _RESPONSE_MARGIN_MS: int = 500
+
+    # How long to wait for the MPR121 boards to power up and be verified.
+    _CAP_POWER_TIMEOUT_MS: int = 5_000
 
     def __init__(
         self,
@@ -144,6 +152,20 @@ class TestRunner(QObject):
             self.test_finished.emit(session)
             return
 
+        # ---- Power up the MPR121 boards and verify both respond --------
+        # Boards are kept powered off between tests, so this must succeed
+        # before any pad can be lit or a touch measured.
+        self._arm_response()
+        self._serial.send_cap_on()
+        cap_response = self._wait_for_response(self._CAP_POWER_TIMEOUT_MS)
+        if cap_response is None or not cap_response.ok:
+            msg = (cap_response.error if cap_response and cap_response.error
+                   else "Timed out waiting for the MPR121 boards to power on")
+            logger.error("CAPON failed: %s", msg)
+            self.hardware_error.emit(msg)
+            self._cleanup()
+            return
+
         self._arm_response()
         self._serial.send_test_start()
         self._wait_for_response(15_000)   # wait for PATTERN COMPLETE (or give up)
@@ -180,6 +202,7 @@ class TestRunner(QObject):
         # Fire-and-forget: the results should appear immediately, not
         # wait for the Arduino's red end-of-test LED flourish to finish.
         self._serial.send_test_end()
+        self._serial.send_cap_off()
         session.end_time = _now()
         logger.info(
             "Test finished — %d trials, overall mean RT %d ms",
@@ -408,6 +431,7 @@ class TestRunner(QObject):
     def _finish_cancelled(self, session: SessionResult) -> None:
         session.end_time = _now()
         logger.info("Test cancelled after %d trials", len(session.trials))
+        self._serial.send_cap_off()
         self.test_cancelled.emit()
         self._cleanup()
 

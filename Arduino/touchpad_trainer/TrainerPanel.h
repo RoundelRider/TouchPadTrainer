@@ -18,15 +18,23 @@
 #define CMD_TOUCH_DOUBLE "DOUBLE"            // <pad number 1> <pad number 2> <color> <expect touch> <timeout>
 #define CMD_CANCEL "CANCEL"
 #define CMD_VERSION "VERSION"
+#define CMD_CAP_ON "CAPON"                   // power up the MPR121 boards and verify both respond
+#define CMD_CAP_OFF "CAPOFF"                 // power down the MPR121 boards
 
 #define MAX_CONCURRENT_PADS 2
+
+// MPR121 boards are powered through a transistor switch on this pin:
+// HIGH = powered on, LOW = powered off.
+#define CAP_POWER_PIN 2
+// Time to let the boards power up and the I2C bus settle before talking to them.
+#define CAP_POWER_SETTLE_MS 50
 
 class TrainerPanel {
 public:
   TrainerPanel(uint16_t pads, uint16_t leds_per_pad, Adafruit_NeoPixel *led_array, uint16_t *translation_table = NULL);
   ~TrainerPanel();
 
-  bool Start();
+  void Init();
   void ProcessCommand(const char *cmd);
 
   void Tick();
@@ -44,6 +52,8 @@ protected:
   void CheckOrientation(bool enable);
   void LedPatternStart();
   void LedPatternEnd();
+  bool CapPowerOn();
+  void CapPowerOff();
   void StartSingleTouch(int pad_number, uint32_t color, bool expect_touch, uint16_t timeout);
   void StartDoubleTouch(int pad_number_1, int pad_number_2, uint32_t color, bool expect_touch, uint16_t timeout);
 

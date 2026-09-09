@@ -27,10 +27,19 @@ TrainerPanel::~TrainerPanel() {
 }
 
 
-bool TrainerPanel::Start() {
+void TrainerPanel::Init() {
   ClearLeds(true);
 
-  // setup the cap touch sensors and try to connect
+  // MPR121 boards are powered off until a test explicitly asks for them
+  // (see CapPowerOn / CMD_CAP_ON) so they don't sit energised between tests.
+  pinMode(CAP_POWER_PIN, OUTPUT);
+  digitalWrite(CAP_POWER_PIN, LOW);
+}
+
+bool TrainerPanel::CapPowerOn() {
+  digitalWrite(CAP_POWER_PIN, HIGH);
+  delay(CAP_POWER_SETTLE_MS);  // let the boards power up before talking I2C
+
   if (cap_touch_0 != NULL)
     delete cap_touch_0;
   if (cap_touch_1 != NULL)
@@ -39,7 +48,30 @@ bool TrainerPanel::Start() {
   cap_touch_0 = new CapTouchMPR121(0x5A);
   cap_touch_1 = new CapTouchMPR121(0x5B);
 
-  return (cap_touch_0->begin() && cap_touch_1->begin());
+  // Probe both boards unconditionally (not &&-short-circuited) so a
+  // failure on one board doesn't stop the other from being verified
+  // and logged.
+  bool ok_0 = cap_touch_0->begin();
+  bool ok_1 = cap_touch_1->begin();
+  bool ok = ok_0 && ok_1;
+  if (!ok) {
+    // Don't leave the boards energised in a half-initialised state --
+    // power off so the next CAPON attempt starts from a clean slate.
+    CapPowerOff();
+  }
+  return ok;
+}
+
+void TrainerPanel::CapPowerOff() {
+  if (cap_touch_0 != NULL) {
+    delete cap_touch_0;
+    cap_touch_0 = NULL;
+  }
+  if (cap_touch_1 != NULL) {
+    delete cap_touch_1;
+    cap_touch_1 = NULL;
+  }
+  digitalWrite(CAP_POWER_PIN, LOW);
 }
 
 void TrainerPanel::ProcessCommand(const char *cmd) {
@@ -59,10 +91,14 @@ void TrainerPanel::ProcessCommand(const char *cmd) {
        the pad is touched from the time the leds are enabled if the command 
        includes an “expect touch” indicator.  The pad will time out according 
        to the included timeout parameter.
-    6) Dual touch.  Two adjacent pads are specified with the indicated color.  
-       Like the single touch command, this command will specify an “expect touch” 
-       indicator, and a time out parameter. Both pads must be touched to make a 
+    6) Dual touch.  Two adjacent pads are specified with the indicated color.
+       Like the single touch command, this command will specify an “expect touch”
+       indicator, and a time out parameter. Both pads must be touched to make a
        successful “expect touch” result.
+    7) Cap power on/off.  CAPON powers up the MPR121 boards and verifies both
+       are detected and initialized, replying "CAPON OK" or an ERROR line.
+       CAPOFF powers the boards back down. The boards are kept unpowered
+       between tests.
   */
   Serial.print("Processing command: ");
   Serial.println(cmd);
@@ -125,6 +161,15 @@ void TrainerPanel::ProcessCommand(const char *cmd) {
       Serial.print(CMD_TOUCH_DOUBLE);
       Serial.println(" command parameters. Expected: <pad number> <Color: WHITE|GREEN|RED> <ExpectTouch: TRUE|FALSE> <timeout ms>");
     }
+  } else if (strncmp(cmd, CMD_CAP_ON, strlen(CMD_CAP_ON)) == 0) {
+    if (CapPowerOn()) {
+      Serial.println("CAPON OK");
+    } else {
+      Serial.println("ERROR: CAPON failed - MPR121 board(s) not detected");
+    }
+  } else if (strncmp(cmd, CMD_CAP_OFF, strlen(CMD_CAP_OFF)) == 0) {
+    CapPowerOff();
+    Serial.println("CAPOFF OK");
   } else if (strncmp(cmd, CMD_CANCEL, strlen(CMD_CANCEL)) == 0) {
 
   } else if (strncmp(cmd, CMD_VERSION, strlen(CMD_VERSION)) == 0) {

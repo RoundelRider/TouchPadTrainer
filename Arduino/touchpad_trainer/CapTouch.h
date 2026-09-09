@@ -22,7 +22,7 @@
 
 #define TOUCH_THRESHOLD 20
 #define RELEASE_THRESHOLD 10
-#define PADS_PER_CAP_CONTROLLER 12
+#define PADS_PER_CAP_CONTROLLER 8
 
 // MPR121 debounce register (0x5B): bits [6:4] = consecutive touch samples
 // required before a touch registers, bits [2:0] = consecutive release

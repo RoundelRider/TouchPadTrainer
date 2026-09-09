@@ -283,6 +283,7 @@ class TestPanelWidget(QWidget):
         self._runner.progress_updated.connect(self._on_progress)
         self._runner.test_finished.connect(self._on_test_finished)
         self._runner.test_cancelled.connect(self._on_test_cancelled)
+        self._runner.hardware_error.connect(self._on_hardware_error)
 
         self._start_btn.setEnabled(False)
         self._cancel_btn.setEnabled(True)
@@ -386,6 +387,17 @@ class TestPanelWidget(QWidget):
         self._phase_lbl.setText("⏹  Cancelled")
         for g in self._pad_grids:
             g.clear_all()
+
+    @pyqtSlot(str)
+    def _on_hardware_error(self, message: str) -> None:
+        self._teardown_thread()
+        self._phase_lbl.setText("⚠  Hardware error")
+        for g in self._pad_grids:
+            g.clear_all()
+        QMessageBox.warning(
+            self, "Touch Sensor Error",
+            f"Could not power up and verify the touch pad boards:\n\n"
+            f"{message}\n\nCheck the connection and try again.")
 
     # ------------------------------------------------------------------
     # Helpers

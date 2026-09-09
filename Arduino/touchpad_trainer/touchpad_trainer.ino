@@ -3,7 +3,10 @@
  *
  * Hardware:
  *   - Arduino Nano
- *   - MPR121 Capacitive Touch Controller (I2C: SDA=A4, SCL=A5, IRQ=D2)
+ *   - MPR121 Capacitive Touch Controller (I2C: SDA=A4, SCL=A5)
+ *   - MPR121 board power switched via transistor on D2 (HIGH = on, LOW = off);
+ *     boards are kept powered off until a CAPON command is received, so they
+ *     don't sit energised between tests
  *   - 12 touch pads with addressable RGB LEDs (WS2812B on D6)
  *
  */
@@ -62,10 +65,8 @@ void setup() {
   led_array.setBrightness(10);
   trainer.ClearLeds();
 
-  if (!trainer.Start()) {
-    Serial.println("ERROR starting training pad");
-    while (true) {}
-  }
+  // Sets up the MPR121 power-control pin (boards stay off until CAPON).
+  trainer.Init();
 
   Serial.println(F("CONTROLLER_READY"));
 }

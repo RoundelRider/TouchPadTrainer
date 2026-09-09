@@ -22,6 +22,9 @@ DOUBLE <pad1> <pad2> <color> <expect> <timeout_ms>
                              Light two adjacent pads; wait for both
 CANCEL                       Abort the current touch measurement
 VERSION                      Query firmware version string
+CAPON                        Power up the MPR121 boards and verify both
+                             respond; replies "CAPON OK" or an ERROR line
+CAPOFF                       Power down the MPR121 boards; replies "CAPOFF OK"
 
 Where:
   <pad>      0-based pad number (as used by TrainerPanel.h)
@@ -35,6 +38,7 @@ SINGLE_PAD_RESULT <pad> <touched> <reaction_time_ms>
 DOUBLE_PAD_RESULT <pad1> <pad2> <touched> <reaction_time_ms>
 ORIENTATION is ON | OFF
 VERSION <version_string>
+CAPON OK | CAPOFF OK
 ERROR <message>              Any line starting with ERROR
 
 Any other line is treated as a debug/info print from the Arduino and
@@ -65,6 +69,8 @@ CMD_SINGLE       = "SINGLE"
 CMD_DOUBLE       = "DOUBLE"
 CMD_CANCEL       = "CANCEL"
 CMD_VERSION      = "VERSION"
+CMD_CAP_ON       = "CAPON"
+CMD_CAP_OFF      = "CAPOFF"
 
 COLOR_WHITE = "WHITE"
 COLOR_GREEN = "GREEN"
@@ -74,6 +80,8 @@ RESP_SINGLE_RESULT   = "SINGLE_PAD_RESULT"
 RESP_DOUBLE_RESULT   = "DOUBLE_PAD_RESULT"
 RESP_PATTERN_COMPLETE = "PATTERN COMPLETE"
 RESP_VERSION         = "VERSION"
+RESP_CAP_ON          = "CAPON"
+RESP_CAP_OFF         = "CAPOFF"
 RESP_ERROR           = "ERROR"
 
 # ---------------------------------------------------------------------------
@@ -383,6 +391,20 @@ class SerialManager(QObject):
         """Abort the current touch measurement."""
         self._enqueue(CMD_CANCEL)
 
+    def send_cap_on(self) -> None:
+        """
+        Power up the MPR121 boards and have the Arduino verify both respond.
+
+        The reply arrives via response_received: a successful ArduinoResponse
+        (response.ok) means both boards were detected and initialized; an
+        error response means the caller should not proceed to start a test.
+        """
+        self._enqueue(CMD_CAP_ON)
+
+    def send_cap_off(self) -> None:
+        """Power down the MPR121 boards."""
+        self._enqueue(CMD_CAP_OFF)
+
     def send_latency_test(self) -> None:
         """
         Send a VERSION query; the round-trip time serves as a latency measure.
@@ -464,6 +486,7 @@ class SerialManager(QObject):
           DOUBLE_PAD_RESULT ...
           PATTERN COMPLETE
           VERSION ...
+          CAPON OK / CAPOFF OK
           ERROR ...
 
         All other lines are Arduino debug/info prints and are logged at
@@ -495,6 +518,9 @@ class SerialManager(QObject):
                 logger.info("Serial RX << %s", line)
                 return ArduinoResponse(raw=line)
             if line.upper().startswith(RESP_VERSION):
+                logger.info("Serial RX << %s", line)
+                return ArduinoResponse(raw=line)
+            if line.upper().startswith(RESP_CAP_ON) or line.upper().startswith(RESP_CAP_OFF):
                 logger.info("Serial RX << %s", line)
                 return ArduinoResponse(raw=line)
             if line.startswith(RESP_ERROR):
@@ -592,6 +618,8 @@ def _expects_result(cmd: str) -> bool:
         or upper.startswith(CMD_DOUBLE)
         or upper.startswith(CMD_PATTERN)
         or upper == CMD_VERSION
+        or upper == CMD_CAP_ON
+        or upper == CMD_CAP_OFF
     )
 
 

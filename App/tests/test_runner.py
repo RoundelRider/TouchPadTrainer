@@ -304,10 +304,27 @@ def _make_mock_serial():
             self.commands: list[str] = []
             self._is_connected = True
             self._response: ArduinoResponse | None = None
+            self._cap_on_fails = False
 
         @property
         def is_connected(self):
             return self._is_connected
+
+        def set_cap_on_fails(self, fails: bool = True):
+            self._cap_on_fails = fails
+
+        def send_cap_on(self):
+            self.commands.append("cap_on")
+            if self._cap_on_fails:
+                self.response_received.emit(ArduinoResponse(
+                    error="ERROR: CAPON failed - MPR121 board(s) not detected",
+                    raw="ERROR: CAPON failed"))
+            else:
+                self.response_received.emit(ArduinoResponse(raw="CAPON OK"))
+
+        def send_cap_off(self):
+            self.commands.append("cap_off")
+            self.response_received.emit(ArduinoResponse(raw="CAPOFF OK"))
 
         def send_test_start(self):
             self.commands.append("test_start")
@@ -424,6 +441,46 @@ class TestRunnerIntegration(unittest.TestCase):
         _, mock_serial, _, _, _, _ = self._run(cfg)
         self.assertIn("test_start", mock_serial.commands)
         self.assertIn("test_end",   mock_serial.commands)
+
+    def test_run_sends_cap_on_and_off(self):
+        cfg = make_config(num_trials=2, isi_ms=0)
+        _, mock_serial, _, _, _, _ = self._run(cfg)
+        self.assertIn("cap_on",  mock_serial.commands)
+        self.assertIn("cap_off", mock_serial.commands)
+
+    def test_cap_on_sent_before_test_start(self):
+        cfg = make_config(num_trials=2, isi_ms=0)
+        _, mock_serial, _, _, _, _ = self._run(cfg)
+        self.assertLess(mock_serial.commands.index("cap_on"),
+                        mock_serial.commands.index("test_start"))
+
+    def test_cap_on_failure_emits_hardware_error(self):
+        cfg = make_config(num_trials=3, isi_ms=0)
+        mock_serial = _make_mock_serial()
+        mock_serial.set_cap_on_fails(True)
+
+        hardware_errors = []
+        finished = []
+        runner = TestRunner(mock_serial, cfg, "P")
+        runner.hardware_error.connect(hardware_errors.append)
+        runner.test_finished.connect(finished.append)
+
+        with patch("core.test_runner.time.sleep"):
+            runner.run()
+
+        self.assertEqual(len(hardware_errors), 1)
+        self.assertEqual(len(finished), 0)
+
+    def test_cap_on_failure_sends_no_trial_commands(self):
+        cfg = make_config(num_trials=3, isi_ms=0)
+        mock_serial = _make_mock_serial()
+        mock_serial.set_cap_on_fails(True)
+        runner = TestRunner(mock_serial, cfg, "P")
+
+        with patch("core.test_runner.time.sleep"):
+            runner.run()
+
+        self.assertNotIn("test_start", mock_serial.commands)
 
     def test_run_sends_one_command_per_trial(self):
         cfg = make_config(num_trials=3, isi_ms=0,
